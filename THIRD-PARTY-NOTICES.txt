@@ -1,0 +1,50 @@
+NS Cheat Manager for Windows - Third-Party Notices
+
+The following components retain their own licenses. The corresponding full
+license texts are distributed in the licenses directory.
+
+FluentFTP 54.2.0
+License: MIT
+Copyright (c) 2015 Robin Rodricks and FluentFTP Contributors
+Source: https://github.com/robinrodricks/FluentFTP
+License file: licenses/MIT-FluentFTP.txt
+
+Microsoft.Data.Sqlite 9.0.19 and Microsoft.Data.Sqlite.Core 9.0.19
+System.Memory 4.5.3 and self-contained .NET runtime components
+License: MIT
+Copyright (c) .NET Foundation and Contributors
+Sources: https://github.com/dotnet/efcore and https://github.com/dotnet/runtime
+License file: licenses/MIT-DotNet.txt
+
+SQLitePCLRaw.bundle_e_sqlite3, SQLitePCLRaw.core,
+SQLitePCLRaw.lib.e_sqlite3 and SQLitePCLRaw.provider.e_sqlite3 2.1.12
+License: Apache-2.0
+Copyright: SourceGear, Microsoft Open Technologies, Inc., and contributors
+Source: https://github.com/ericsink/SQLitePCL.raw
+License file: licenses/Apache-2.0.txt
+
+SQLite itself is in the public domain. Its upstream blessing reads:
+May you do good and not evil. May you find forgiveness for yourself and
+forgive others. May you share freely, never taking more than you give.
+
+Lucide icon geometry used by the UI and application icon
+Licenses: ISC; some icons derived from Feather are MIT
+Copyright (c) 2026 Lucide Icons and Contributors
+Copyright (c) 2013-present Cole Bemis
+Source: https://github.com/lucide-icons/lucide
+License file: licenses/Lucide-and-Feather.txt
+
+PointerSearcher-SE Noexs compatibility reference
+License: MIT
+Copyright (c) 2019 Takumi4685
+Source: https://github.com/tomvita/PointerSearcher-SE
+License file: licenses/MIT-PointerSearcher-SE.txt
+
+Protocol and format acknowledgements:
+- sys-botbase: https://github.com/olliz0r/sys-botbase (GPL-3.0)
+- Atmosphere: https://github.com/Atmosphere-NX/Atmosphere
+- Noexs compatibility reference: https://github.com/tomvita/PointerSearcher-SE
+
+Nintendo, Atmosphere, sys-botbase and Noexs names belong to their respective
+owners. This unofficial community project is not affiliated with, sponsored by,
+or endorsed by them.

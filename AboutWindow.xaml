@@ -1,0 +1,128 @@
+<Window x:Class="NSCheatManager.Windows.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="关于"
+        Icon="Assets/app.png"
+        Width="680"
+        Height="760"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="#F7F8FC"
+        FontFamily="Segoe UI"
+        FontSize="14">
+    <Window.Resources>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#D7DEEB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="14"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+        <Style x:Key="LinkCard" TargetType="Button">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#D7DEEB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="14"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#F0F5FF"/><Setter TargetName="Surface" Property="BorderBrush" Value="#8FB1F4"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#E4EDFF"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,6,0">
+                <StackPanel HorizontalAlignment="Center" Margin="0,2,0,16">
+                    <Border Width="72" Height="72" CornerRadius="20" Background="#2764D8" HorizontalAlignment="Center">
+                        <Image Source="Assets/app.png" Width="56" Height="56" Stretch="Uniform"/>
+                    </Border>
+                    <TextBlock x:Name="ProductName" Text="NS Cheat Manager for Windows" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                    <TextBlock x:Name="VersionText" Foreground="#59647A" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                    <TextBlock x:Name="SummaryText" TextWrapping="Wrap" TextAlignment="Center" Foreground="#59647A" MaxWidth="560" Margin="0,8,0,0"/>
+                </StackPanel>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock x:Name="CreditsTitle" Text="开源项目与许可" FontSize="16" FontWeight="SemiBold"/>
+                        <Grid Margin="0,9,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="sys-botbase" Margin="0,3"/><TextBlock x:Name="SysBotCredit" Grid.Column="1" Text="设备会话与游戏识别协议" TextAlignment="Right" Foreground="#59647A" Margin="0,3"/>
+                            <TextBlock Grid.Row="1" Text="Atmosphère" Margin="0,3"/><TextBlock x:Name="AtmosphereCredit" Grid.Row="1" Grid.Column="1" Text="CFW 与金手指格式" TextAlignment="Right" Foreground="#59647A" Margin="0,3"/>
+                            <TextBlock Grid.Row="2" Text="Noexs" Margin="0,3"/><TextBlock x:Name="NoexsCredit" Grid.Row="2" Grid.Column="1" Text="dmnt 分离协议参考" TextAlignment="Right" Foreground="#59647A" Margin="0,3"/>
+                        </Grid>
+                        <TextBlock x:Name="LicenseSummary" Text="本程序采用 GNU GPL v3 only；第三方组件保留各自许可证。" TextWrapping="Wrap" Foreground="#59647A" Margin="0,9,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Button x:Name="AndroidProjectButton" Style="{StaticResource LinkCard}" Click="AndroidProject_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
+                        <Border Width="42" Height="42" CornerRadius="12" Background="#2764D8"><TextBlock Text="GH" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                        <StackPanel Grid.Column="1" Margin="10,0">
+                            <TextBlock x:Name="AndroidProjectTitle" Text="安卓版项目 GitHub" FontWeight="SemiBold"/>
+                            <TextBlock Text="https://github.com/Aster145/NSCheatManager" Foreground="#59647A" FontSize="12"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Text="→" Foreground="#2764D8" FontSize="22" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
+
+                <Button x:Name="WindowsProjectButton" Style="{StaticResource LinkCard}" Click="WindowsProject_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
+                        <Border Width="42" Height="42" CornerRadius="12" Background="#E7ECF6"><TextBlock Text="WIN" Foreground="#2764D8" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                        <StackPanel Grid.Column="1" Margin="10,0">
+                            <TextBlock x:Name="WindowsProjectTitle" Text="Windows 仓库" FontWeight="SemiBold"/>
+                            <TextBlock Text="NSCheatManager-Windows" Foreground="#27344D"/>
+                            <TextBlock x:Name="WindowsProjectUrlText" Text="https://github.com/Aster145/NSCheatManager-Windows" Foreground="#59647A" FontSize="12"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Text="→" Foreground="#2764D8" FontSize="22" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock x:Name="RiskTitle" Text="使用说明与风险" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="RiskText" TextWrapping="Wrap" Foreground="#B42318" Margin="0,7,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Button x:Name="QqButton" Style="{StaticResource LinkCard}" Click="Qq_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
+                        <Border Width="42" Height="42" CornerRadius="12" Background="#2764D8"><TextBlock Text="QQ" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                        <StackPanel Grid.Column="1" Margin="10,0">
+                            <TextBlock x:Name="QqTitle" Text="QQ 群" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="QqNumber" Text="群号：457965140" Foreground="#59647A"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Text="→" Foreground="#2764D8" FontSize="22" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="CopyButton" Content="复制版本信息" Padding="12,7" Click="Copy_Click"/>
+            <Button x:Name="CloseButton" Content="关闭" Padding="12,7" Margin="8,0,0,0" Click="Close_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

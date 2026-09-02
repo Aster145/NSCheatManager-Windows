@@ -1,0 +1,12 @@
+.vs/
+**/bin/
+**/obj/
+/data/
+/artifacts/
+*.user
+*.suo
+*.userprefs
+*.db
+*.db-shm
+*.db-wal
+*.log
