@@ -93,7 +93,15 @@ try
     if (NSCheatManager.Windows.Protocol.SwitchFtpClient.Normalize("switch/breeze") != "/switch/breeze") throw new Exception("FTP normalize failed");
     if (NSCheatManager.Windows.Protocol.SwitchFtpClient.Parent("/switch/breeze/cheats") != "/switch/breeze") throw new Exception("FTP parent failed");
     try { _ = NSCheatManager.Windows.Protocol.SwitchFtpClient.Normalize("/switch/../Nintendo"); throw new Exception("FTP traversal was accepted"); } catch (ArgumentException) { }
+    if (SwitchFtpClient.NormalizeConfiguredDirectory("/switch\\breeze/cheats/") != "/switch/breeze/cheats") throw new Exception("Configured FTP directory normalization failed");
+    try { _ = SwitchFtpClient.NormalizeConfiguredDirectory("switch/breeze"); throw new Exception("Relative configured FTP directory was accepted"); } catch (ArgumentException) { }
+    if (SwitchFtpClient.NormalizeTextFileName("new-cheat") != "new-cheat.txt" ||
+        SwitchFtpClient.NormalizeTextFileName("already.TXT") != "already.TXT" ||
+        SwitchFtpClient.NormalizeTextFileName("draft.md") != "draft.md.txt")
+        throw new Exception("FTP text file suffix normalization failed");
+    try { _ = SwitchFtpClient.NormalizeTextFileName("../unsafe"); throw new Exception("Unsafe FTP text file name was accepted"); } catch (ArgumentException) { }
     Console.WriteLine("FTP_PATH_SAFETY=OK");
+    Console.WriteLine("FTP_DEFAULT_DIRECTORY_AND_TEXT_NAME_OK");
     const string scopeTid = "0100A3D008C5C000";
     const string scopeBid = "421C5411B487EB4D";
     const string otherScopeTid = "0100000000000001";

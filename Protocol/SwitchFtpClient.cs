@@ -65,6 +65,14 @@ public sealed class SwitchFtpClient(string host, int port)
         finally { if (File.Exists(partial)) File.Delete(partial); }
     }
 
+    public async Task<bool> FileExistsAsync(string remotePath, CancellationToken ct)
+    {
+        remotePath = Normalize(remotePath);
+        await using var client = CreateClient();
+        await client.Connect(ct);
+        return await client.FileExists(Resolve(await DetectRootAsync(client, ct), remotePath), ct);
+    }
+
     public Task UploadSafelyAsync(string titleId, string fileName, byte[] content, CancellationToken ct)
     {
         ValidateTextName(fileName); if (content.LongLength > MaxTextBytes) throw new InvalidDataException("TXT 超过 1 MiB 限制。");
@@ -175,8 +183,22 @@ public sealed class SwitchFtpClient(string host, int port)
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries); if (parts.Any(x => x is "." or "..")) throw new ArgumentException("远端路径包含非法片段。");
         return "/" + string.Join('/', parts);
     }
+    public static string NormalizeConfiguredDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("FTP 默认目录不能为空。", nameof(path));
+        path = path.Trim().Replace('\\', '/');
+        if (!path.StartsWith('/')) throw new ArgumentException("FTP 默认目录必须是以 / 开头的绝对路径。", nameof(path));
+        return Normalize(path);
+    }
     public static string Parent(string path) { var p = Normalize(path); if (p == "/") return "/"; var i = p.LastIndexOf('/'); return i <= 0 ? "/" : p[..i]; }
     public static string Combine(string dir, string name) { ValidateName(name); return Normalize(dir).TrimEnd('/') + "/" + name; }
+    public static string NormalizeTextFileName(string requestedName)
+    {
+        var name = requestedName.Trim();
+        if (!name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)) name += ".txt";
+        ValidateTextName(name);
+        return name;
+    }
     public static bool IsCurrentCheatFile(RemoteEntry entry, string titleId, string buildId)
     {
         var directory = CheatDirectory(titleId);

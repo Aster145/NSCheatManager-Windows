@@ -135,6 +135,29 @@ public sealed class DeviceSession : IAsyncDisposable
         await AppLog.InfoAsync($"FTP 直接覆盖完成 | remote={remotePath}");
     }
 
+    public Task<bool> RemoteFileExistsAsync(DeviceProfile device, string remotePath, CancellationToken cancellationToken)
+        => new SwitchFtpClient(device.Host, device.FtpPort).FileExistsAsync(remotePath, cancellationToken);
+
+    public FtpTextDraft CreateFtpTextDraft(DeviceProfile device, string remoteDirectory, string requestedName)
+    {
+        if (string.IsNullOrWhiteSpace(device.TextEditorPath) || !File.Exists(device.TextEditorPath))
+            throw new InvalidOperationException("请先在设置中配置有效的 TXT 文本编辑器路径。");
+        var fileName = SwitchFtpClient.NormalizeTextFileName(requestedName);
+        var remotePath = SwitchFtpClient.Combine(remoteDirectory, fileName);
+        var localDirectory = Path.Combine(AppPaths.DeviceTemp(device.Id, device.Host, device.FtpPort), "new-text", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(localDirectory);
+        var localPath = Path.Combine(localDirectory, fileName);
+        File.WriteAllText(localPath, string.Empty, new UTF8Encoding(false));
+        WatchTemporary(device, localPath, remotePath);
+        try { OpenWithConfiguredProgram(localPath, true, device); }
+        catch
+        {
+            File.Delete(localPath);
+            throw;
+        }
+        return new FtpTextDraft(localPath, remotePath, fileName);
+    }
+
     public async Task CreateRemoteDirectoryAsync(DeviceProfile device, string path, CancellationToken cancellationToken)
     { await new SwitchFtpClient(device.Host, device.FtpPort).CreateDirectoryAsync(path, cancellationToken); }
     public async Task DeleteRemoteFileByPathAsync(DeviceProfile device, string path, CancellationToken cancellationToken)
@@ -368,3 +391,4 @@ public sealed class DeviceSession : IAsyncDisposable
 }
 
 public sealed record DatabaseArchiveResult(int Added, int Unchanged, bool NotesFound);
+public sealed record FtpTextDraft(string LocalPath, string RemotePath, string FileName);

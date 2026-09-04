@@ -2,7 +2,7 @@
 param()
 
 $projectRoot = $PSScriptRoot
-$version = '1.0.0'
+$version = '1.0.1'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $outputPath = Join-Path $projectRoot "artifacts\release-staging\$version-$stamp"
 New-Item -ItemType Directory -Path $outputPath -ErrorAction Stop | Out-Null

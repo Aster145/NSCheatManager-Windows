@@ -8,6 +8,7 @@ public static class AppPaths
 {
     public static string Root { get; } = Path.Combine(AppContext.BaseDirectory, "data");
     public static string Devices => Path.Combine(Root, "devices.json");
+    public static string Settings => Path.Combine(Root, "settings.json");
     public static string Pending => Path.Combine(Root, "pending.json");
     public static string PendingQuarantine => Path.Combine(Root, "pending-quarantine.json");
     public static string Database => Path.Combine(Root, "nscheatmanager.db");

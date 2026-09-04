@@ -34,8 +34,8 @@ internal static class Program
         var window = new MainWindow { ShowInTaskbar = false, Left = -10000, Top = -10000 };
         window.Show();
         Pump(TimeSpan.FromSeconds(1));
-        if (window.FindName("VersionButton") is not Button { Content: string mainVersion } || mainVersion != "v1.0.0  ⓘ")
-            throw new InvalidOperationException("Main-window version is not the final v1.0.0 label.");
+        if (window.FindName("VersionButton") is not Button { Content: string mainVersion } || mainVersion != "v1.0.1  ⓘ")
+            throw new InvalidOperationException("Main-window version is not the final v1.0.1 label.");
         Render(window, Path.Combine(output, "main-window.png"));
         window.Close();
 
@@ -46,6 +46,10 @@ internal static class Program
         }
         settingsWindow.Show();
         Pump(TimeSpan.FromSeconds(1));
+        if (settingsWindow.DataContext is not MainViewModel settingsViewModel || !settingsViewModel.FtpDefaultDirectory.StartsWith('/'))
+            throw new InvalidOperationException("Global FTP default directory did not initialize as an absolute path.");
+        if (settingsWindow.FindName("NewTextButton") is not Button)
+            throw new InvalidOperationException("FTP new-text button is missing.");
         Render(settingsWindow, Path.Combine(output, "settings-page.png"));
         settingsWindow.Close();
 
@@ -282,6 +286,8 @@ internal static class Program
         if (englishWindow.FindName("LanguageButton") is not Button languageButton || englishWindow.DataContext is not MainViewModel englishViewModel)
             throw new InvalidOperationException("English UI controls are missing.");
         languageButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if ((englishWindow.FindName("NewTextButton") as Button)?.Content?.ToString() != "New text file")
+            throw new InvalidOperationException("FTP new-text button did not switch to English.");
         englishViewModel.NavigateLibraryCommand.Execute(null);
         Pump(TimeSpan.FromMilliseconds(500));
         if ((englishWindow.FindName("SaveToDatabaseButton") as Button)?.Content?.ToString() != "Save to database" ||
@@ -321,6 +327,30 @@ internal static class Program
         if (!TextPromptWindow.TryShow("Remark", "Save", "english", true, out var englishPromptValue) || englishPromptValue != "english" || !englishPromptButtonsOk)
             throw new InvalidOperationException("English WPF text prompt smoke test failed.");
         Console.WriteLine("WPF_PROMPT_ENGLISH_OK");
+
+        var persistenceViewModel = new MainViewModel();
+        var persistenceInit = persistenceViewModel.InitializeAsync();
+        PumpUntil(() => persistenceInit.IsCompleted, TimeSpan.FromSeconds(5));
+        persistenceInit.GetAwaiter().GetResult();
+        persistenceViewModel.AddDeviceCommand.Execute(null);
+        var remembered = persistenceViewModel.SelectedDevice ?? throw new InvalidOperationException("Remembered-device probe could not create a device.");
+        remembered.Name = "Remembered device probe";
+        persistenceViewModel.FtpDefaultDirectory = "/switch/breeze/cheats";
+        persistenceViewModel.SaveDeviceCommand.Execute(null);
+        PumpUntil(() => persistenceViewModel.StatusMessage.Contains("设备设置已保存", StringComparison.Ordinal), TimeSpan.FromSeconds(3));
+        var persistenceShutdown = persistenceViewModel.ShutdownAsync();
+        PumpUntil(() => persistenceShutdown.IsCompleted, TimeSpan.FromSeconds(5));
+        persistenceShutdown.GetAwaiter().GetResult();
+        var restoredViewModel = new MainViewModel();
+        var restoredInit = restoredViewModel.InitializeAsync();
+        PumpUntil(() => restoredInit.IsCompleted, TimeSpan.FromSeconds(5));
+        restoredInit.GetAwaiter().GetResult();
+        if (restoredViewModel.SelectedDevice?.Id != remembered.Id || restoredViewModel.FtpDefaultDirectory != "/switch/breeze/cheats" || restoredViewModel.ConnectionStatus != "未连接" || restoredViewModel.FtpStatus != "FTP 未连接")
+            throw new InvalidOperationException("Last-selected device or global FTP default directory was not restored without connecting.");
+        var restoredShutdown = restoredViewModel.ShutdownAsync();
+        PumpUntil(() => restoredShutdown.IsCompleted, TimeSpan.FromSeconds(5));
+        restoredShutdown.GetAwaiter().GetResult();
+        Console.WriteLine("LAST_DEVICE_AND_FTP_DEFAULT_PERSISTENCE_OK");
         application.Shutdown();
     }
 
@@ -357,7 +387,7 @@ internal static class Program
             !visibleText.Contains(expectedGroup))
             throw new InvalidOperationException($"About window {(english ? "English" : "Chinese")} project/community details are incomplete.");
         if (windowsUrl.Text != "https://github.com/Aster145/NSCheatManager-Windows" ||
-            aboutVersion.Text != "v1.0.0 · win-x64 · portable/self-contained" || aboutVersion.Text.Contains("preview", StringComparison.OrdinalIgnoreCase) ||
+            aboutVersion.Text != "v1.0.1 · win-x64 · portable/self-contained" || aboutVersion.Text.Contains("preview", StringComparison.OrdinalIgnoreCase) ||
             qqNumber.Text != expectedGroup ||
             about.Title != (english ? "About" : "关于"))
             throw new InvalidOperationException($"About window {(english ? "English" : "Chinese")} localization is incorrect.");

@@ -22,6 +22,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly DeviceSession _session = new();
     private readonly SemaphoreSlim _gameSessionGate = new(1, 1);
     private readonly SemaphoreSlim _historyRefreshGate = new(1, 1);
+    private readonly SemaphoreSlim _settingsSaveGate = new(1, 1);
+    private AppSettings _appSettings = new();
     private DeviceProfile? _selectedDevice;
     private string _page = "Game";
     private string _connectionStatus = "未连接";
@@ -42,6 +44,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _databaseBuildId = "—";
     private string _databaseGameName = "";
     private string _databaseVersionName = "";
+    private string _ftpDefaultDirectory = "/";
+    private bool _initialized;
     public ObservableCollection<DeviceProfile> Devices { get; } = [];
     public ObservableCollection<PendingUpload> PendingUploads { get; } = [];
     public ObservableCollection<RemoteTextFile> RemoteFiles { get; } = [];
@@ -101,6 +105,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             RefreshPendingFilter();
             Raise(nameof(VisiblePendingUploads));
+            if (_initialized) _ = SaveAppSettingsSafelyAsync(saveFtpDirectory: false);
         }
     }
     public IEnumerable<PendingUpload> VisiblePendingUploads => SelectedDevice is null ? [] : PendingUploads.Where(x => x.DeviceId == SelectedDevice.Id);
@@ -115,6 +120,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string DatabaseBuildId { get => _databaseBuildId; private set => Set(ref _databaseBuildId, value); }
     public string DatabaseGameName { get => _databaseGameName; set => Set(ref _databaseGameName, value); }
     public string DatabaseVersionName { get => _databaseVersionName; set => Set(ref _databaseVersionName, value); }
+    public string FtpDefaultDirectory { get => _ftpDefaultDirectory; set => Set(ref _ftpDefaultDirectory, value); }
     public string SelectedHistorySummary => SelectedHistoryEntry is null
         ? (_english ? "Select a history record" : "请选择一条历史记录")
         : $"{SelectedHistoryEntry.FileDisplay} · {SelectedHistoryEntry.CreatedAt.LocalDateTime:g} · {SelectedHistoryEntry.Size} B";
@@ -192,7 +198,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RestoreHistoryCommand = new(async value => await RunFtpOperationAsync(() => RestoreHistoryAsync(value as HistoryEntry ?? SelectedHistoryEntry)));
         SaveToDatabaseCommand = new(async _ => await RunFtpOperationAsync(SaveCurrentGameToDatabaseAsync));
         SaveDatabaseLabelsCommand = new(async _ => await RunAsync(SaveDatabaseLabelsAsync));
-        ListAllFilesCommand = new(async _ => await RunFtpOperationAsync(() => ListRemoteAsync(RemotePath, true)));
+        ListAllFilesCommand = new(async _ => await RunFtpOperationAsync(() => ListRemoteAsync(IsFtpConnected ? RemotePath : SwitchFtpClient.NormalizeConfiguredDirectory(FtpDefaultDirectory), true)));
         GoParentCommand = new(async _ => await RunFtpOperationAsync(() => ListRemoteAsync(SwitchFtpClient.Parent(RemotePath))));
         OpenEntryCommand = new(async value => await RunFtpOperationAsync(() => OpenEntryAsync(value as RemoteEntry ?? SelectedRemoteEntry)));
         DownloadEntryCommand = new(async value => await RunFtpOperationAsync(() => DownloadEntryAsync(value as RemoteEntry ?? SelectedRemoteEntry)));
@@ -212,6 +218,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public async Task InitializeAsync()
     {
         AppPaths.Ensure(); await _session.InitializeAsync();
+        _appSettings = await LoadAsync(AppPaths.Settings, new AppSettings());
+        var savedFtpDefaultDirectory = _appSettings.FtpDefaultDirectory;
+        try { FtpDefaultDirectory = SwitchFtpClient.NormalizeConfiguredDirectory(savedFtpDefaultDirectory); }
+        catch (ArgumentException)
+        {
+            FtpDefaultDirectory = "/";
+            _appSettings.FtpDefaultDirectory = "/";
+            await AppLog.WarningAsync($"已忽略无效的 FTP 默认目录 | value={savedFtpDefaultDirectory}");
+        }
         var seenDeviceIds = new HashSet<Guid>();
         var ambiguousDeviceIds = new HashSet<Guid>();
         foreach (var device in await LoadAsync(AppPaths.Devices, new List<DeviceProfile>()))
@@ -226,7 +241,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Devices.Add(device);
         }
         if (Devices.Count == 0) Devices.Add(new DeviceProfile());
-        SelectedDevice = Devices[0];
+        SelectedDevice = Devices.FirstOrDefault(device => device.Id == _appSettings.LastSelectedDeviceId) ?? Devices[0];
         await SaveAsync(AppPaths.Devices, Devices.ToList());
         var savedPending = await LoadAsync(AppPaths.Pending, new List<PendingUpload>());
         var newlyQuarantined = savedPending.Where(x => ambiguousDeviceIds.Contains(x.DeviceId) || string.IsNullOrWhiteSpace(x.DeviceHost) || x.DeviceFtpPort is not > 0).Distinct().ToList();
@@ -244,6 +259,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ? $"已加载 {Devices.Count} 个设备档案。"
             : $"已加载 {Devices.Count} 个设备档案；{newlyQuarantined.Count} 个归属不明的待上传项已安全隔离。";
         await AppLog.InfoAsync($"主界面初始化完成 | devices={Devices.Count}");
+        _initialized = true;
     }
 
     private async Task ConnectAsync()
@@ -405,7 +421,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         var device = RequireSelectedDevice();
-        await ListRemoteAsync(RemotePath, true);
+        await ListRemoteAsync(SwitchFtpClient.NormalizeConfiguredDirectory(FtpDefaultDirectory), true);
         if (IsFtpConnected) StatusMessage = $"FTP 已连接到 {device.Name}；未调用 sys-botbase。";
     }
 
@@ -623,7 +639,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             EnsurePendingEndpointMatches(item, device);
             if (item.RemotePath is { Length: > 0 } remote) EnsureRemoteWriteAuthorized(device, remote);
         }
-        foreach (var item in items) { try { await UploadOneAsync(item); } catch { throw; } }
+        foreach (var item in items)
+        {
+            try { await UploadOneAsync(item); } catch { throw; }
+            if (PendingUploads.Contains(item))
+            {
+                StatusMessage = _english
+                    ? $"Upload batch stopped at {item.DisplayName}; this and all remaining items are still pending."
+                    : $"上传批次已在 {item.DisplayName} 停止；该项及所有未处理项仍保留待上传。";
+                return;
+            }
+        }
         StatusMessage = "待上传文件已全部上传。";
     }
     private async Task UploadOneAsync(PendingUpload? item)
@@ -636,6 +662,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (item.RemotePath is { Length: > 0 } remotePath) EnsureRemoteWriteAuthorized(device, remotePath);
         if (!isStandaloneFtpItem && !HasCurrentGameIdentityFor(device, requireSameFtpPort: true)) throw new InvalidOperationException("旧版待上传项需要先使用相同端点连接并识别对应游戏；可重新打开并保存文件以转换为独立 FTP 项。");
         if (!isStandaloneFtpItem && _session.Identity?.MainBase == "手动模式" && MessageBox.Show($"当前是未验证手动模式。确认上传到手动输入的 TID/BID？\nTID: {TitleId}\nBID: {BuildId}", "未验证手动模式", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (isStandaloneFtpItem && await _session.RemoteFileExistsAsync(device, item.RemotePath!, CancellationToken.None))
+        {
+            var message = _english
+                ? $"A remote file with the same name already exists. Overwrite it?\n{item.RemotePath}"
+                : $"远端已有同名文件，是否覆盖？\n{item.RemotePath}";
+            if (MessageBox.Show(message, _english ? "Confirm overwrite" : "确认覆盖", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                StatusMessage = _english ? "Overwrite cancelled; the file remains pending." : "已取消覆盖；该文件仍保留在待上传区。";
+                return;
+            }
+        }
         try
         {
             if (item.LocalPath is { Length: > 0 } local && item.RemotePath is { Length: > 0 } remote)
@@ -678,7 +715,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task ImportZipAsync() { RequireCurrentGameSession(); var dialog = new OpenFileDialog { Filter = "ZIP archive (*.zip)|*.zip" }; if (dialog.ShowDialog() != true) return; await CheatZipService.ImportAsync(dialog.FileName, TitleId, BuildId, CancellationToken.None); StatusMessage = "ZIP 已导入本地镜像；文件将进入待上传区。"; }
     private async Task SaveDevicesAsync()
     {
-        ValidateDevices(); var reconnect = _session.Device is not null; var ftpWasConnected = IsFtpConnected; await SaveAsync(AppPaths.Devices, Devices.ToList());
+        ValidateDevices();
+        FtpDefaultDirectory = SwitchFtpClient.NormalizeConfiguredDirectory(FtpDefaultDirectory);
+        var reconnect = _session.Device is not null; var ftpWasConnected = IsFtpConnected;
+        await SaveAsync(AppPaths.Devices, Devices.ToList());
+        await SaveAppSettingsAsync(saveFtpDirectory: true);
         if (ftpWasConnected) ResetFtpState();
         if (reconnect) { await DisconnectAsync(); await ConnectAsync(); }
         StatusMessage = reconnect ? "设置已保存，并已使用新参数重新连接 sys-botbase；FTP 请重新连接。" : ftpWasConnected ? "设备设置已保存；FTP 请使用新参数重新连接。" : "设备设置已保存。";
@@ -838,13 +879,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task CreateTextAsync()
     {
-        RequireCurrentGameSession();
-        if (!TextPromptWindow.TryShow(_english ? "Enter a new file name (must end in .txt):" : "输入新文件名（必须以 .txt 结尾）：", _english ? "Create text file" : "新建文本", "new-cheat.txt", _english, out var input)) return;
-        var name = input.Trim();
-        if (name.Length == 0) return;
-        _session.CreateLocalText(name);
-        _session.OpenLocal(name);
-        await QueueChangedAsync(name);
+        var device = RequireFtpDevice();
+        EnsureRemoteWriteAuthorized(device, RemotePath);
+        if (!TextPromptWindow.TryShow(
+                _english ? "Enter the new text file name (.txt is added automatically):" : "输入新文本文件名（自动补充 .txt 后缀）：",
+                _english ? "New FTP text file" : "FTP 新建文本文件",
+                "new-file.txt",
+                _english,
+                out var input)) return;
+        if (string.IsNullOrWhiteSpace(input)) return;
+        var draft = _session.CreateFtpTextDraft(device, RemotePath, input);
+        await QueueTemporaryAsync(device.Id, device.Host, device.FtpPort, draft.LocalPath, draft.RemotePath);
+        StatusMessage = _english
+            ? $"{draft.FileName} was opened in the configured editor and added to pending uploads."
+            : $"{draft.FileName} 已用设定的编辑器打开并加入待上传区。";
     }
 
     private async Task OpenRemoteFileAsync(RemoteTextFile? file)
@@ -1068,5 +1116,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void RaisePages() { foreach (var name in new[] { nameof(IsGamePageVisible), nameof(IsCheatsPageVisible), nameof(IsFilesPageVisible), nameof(IsLibraryPageVisible), nameof(IsScreensPageVisible), nameof(IsSettingsPageVisible), nameof(GameNavBackground), nameof(CheatsNavBackground), nameof(FtpNavBackground), nameof(LibraryNavBackground), nameof(ScreensNavBackground), nameof(SettingsNavBackground), nameof(GameNavForeground), nameof(CheatsNavForeground), nameof(FtpNavForeground), nameof(LibraryNavForeground), nameof(ScreensNavForeground), nameof(SettingsNavForeground) }) PropertyChanged?.Invoke(this, new(name)); }
     private Brush NavBackground(string page) => Page == page ? new SolidColorBrush(Color.FromRgb(214, 228, 255)) : Brushes.Transparent;
     private Brush NavForeground(string page) => Page == page ? new SolidColorBrush(Color.FromRgb(22, 70, 150)) : new SolidColorBrush(Color.FromRgb(30, 38, 55));
-    public async Task ShutdownAsync() => await _session.DisposeAsync();
+    private async Task SaveAppSettingsAsync(bool saveFtpDirectory)
+    {
+        await _settingsSaveGate.WaitAsync();
+        try
+        {
+            _appSettings.LastSelectedDeviceId = SelectedDevice?.Id;
+            if (saveFtpDirectory)
+                _appSettings.FtpDefaultDirectory = SwitchFtpClient.NormalizeConfiguredDirectory(FtpDefaultDirectory);
+            await SaveAsync(AppPaths.Settings, _appSettings);
+        }
+        finally { _settingsSaveGate.Release(); }
+    }
+
+    private async Task SaveAppSettingsSafelyAsync(bool saveFtpDirectory)
+    {
+        try { await SaveAppSettingsAsync(saveFtpDirectory); }
+        catch (Exception error) { await AppLog.ErrorAsync("记住最后选择的设备失败", error); }
+    }
+
+    public async Task ShutdownAsync()
+    {
+        try { await SaveAppSettingsAsync(saveFtpDirectory: false); }
+        catch (Exception error) { await AppLog.ErrorAsync("保存关闭时的设备与 FTP 默认目录失败", error); }
+        await _session.DisposeAsync();
+    }
 }
