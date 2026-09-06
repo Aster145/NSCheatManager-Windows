@@ -11,7 +11,8 @@
 - 一键连接并仅列出当前 `BID.txt` 与 `notes.txt`。
 - 浏览 Switch SD 卡；下载、上传、重命名和删除普通文件。
 - 记住最后选择的设备，并可设置全局 FTP 默认进入目录；启动时仍不会自动连接。
-- 在 FTP 当前目录新建本地 TXT 草稿，用设定的编辑器打开后加入待上传区。
+- 在 FTP 当前目录新建本地 TXT 草稿，默认用 Windows 关联程序打开，也可指定编辑器；保存后加入待上传区。
+- ZIP 打包每次读取 Switch 上当前 TID/BID 的最新文件，同名分享文件安全覆盖并继续保留时间戳备份。
 - 编辑后的文件先进入待上传区，由用户点击确认后统一上传。
 - 手动写入本地 SQLite 数据库，填写备注并离线编辑历史版本。
 - 导入或打包 Atmosphère 格式 ZIP，并自动保留时间戳备份。
@@ -20,7 +21,7 @@
 
 ## 下载与运行
 
-1. 从 [Releases](https://github.com/Aster145/NSCheatManager-Windows/releases) 下载 `NSCheatManager-v1.0.1-win-x64.zip`。
+1. 从 [Releases](https://github.com/Aster145/NSCheatManager-Windows/releases) 下载 `NSCheatManager-v1.0.2-win-x64.zip`。
 2. 解压到普通文件夹。
 3. 直接运行 `NSCheatManager.exe`，无需安装 .NET 或安装程序。
 4. 在“设置”中填写设备名称、IPv4 地址及端口。

@@ -23,6 +23,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly SemaphoreSlim _gameSessionGate = new(1, 1);
     private readonly SemaphoreSlim _historyRefreshGate = new(1, 1);
     private readonly SemaphoreSlim _settingsSaveGate = new(1, 1);
+    private readonly SemaphoreSlim _pendingSaveGate = new(1, 1);
     private AppSettings _appSettings = new();
     private DeviceProfile? _selectedDevice;
     private string _page = "Game";
@@ -36,6 +37,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private Guid? _ftpConnectedDeviceId;
     private string? _ftpConnectedHost;
     private int? _ftpConnectedPort;
+    private bool _ftpBrowserLocationInitialized;
     private int _ftpOperationBusy;
     private bool _english;
     private Brush _statusMessageBrush = new SolidColorBrush(Color.FromRgb(45, 55, 75));
@@ -198,7 +200,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RestoreHistoryCommand = new(async value => await RunFtpOperationAsync(() => RestoreHistoryAsync(value as HistoryEntry ?? SelectedHistoryEntry)));
         SaveToDatabaseCommand = new(async _ => await RunFtpOperationAsync(SaveCurrentGameToDatabaseAsync));
         SaveDatabaseLabelsCommand = new(async _ => await RunAsync(SaveDatabaseLabelsAsync));
-        ListAllFilesCommand = new(async _ => await RunFtpOperationAsync(() => ListRemoteAsync(IsFtpConnected ? RemotePath : SwitchFtpClient.NormalizeConfiguredDirectory(FtpDefaultDirectory), true)));
+        ListAllFilesCommand = new(async _ => await RunFtpOperationAsync(() => ListRemoteAsync(ResolveFtpListAllPath(), true)));
         GoParentCommand = new(async _ => await RunFtpOperationAsync(() => ListRemoteAsync(SwitchFtpClient.Parent(RemotePath))));
         OpenEntryCommand = new(async value => await RunFtpOperationAsync(() => OpenEntryAsync(value as RemoteEntry ?? SelectedRemoteEntry)));
         DownloadEntryCommand = new(async value => await RunFtpOperationAsync(() => DownloadEntryAsync(value as RemoteEntry ?? SelectedRemoteEntry)));
@@ -425,6 +427,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (IsFtpConnected) StatusMessage = $"FTP 已连接到 {device.Name}；未调用 sys-botbase。";
     }
 
+    private string ResolveFtpListAllPath() => _ftpBrowserLocationInitialized
+        ? RemotePath
+        : SwitchFtpClient.NormalizeConfiguredDirectory(FtpDefaultDirectory);
+
     private async Task<IReadOnlyList<RemoteEntry>?> FetchFtpDirectoryAsync(string path, bool autoConnect)
     {
         path = SwitchFtpClient.Normalize(path);
@@ -492,6 +498,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _ftpConnectedPort = null;
         RemoteEntries.Clear();
         RemotePath = "/";
+        _ftpBrowserLocationInitialized = false;
         ClearCurrentCheatView(status);
         FtpStatus = status;
         TransferStatus = "";
@@ -701,16 +708,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task ExportZipAsync()
     {
         RequireCurrentGameSession(requireSameFtpPort: true);
-        if (!File.Exists(AppPaths.CheatFile(TitleId, BuildId)))
-        {
-            StatusMessage = "本地没有当前 BID 金手指，正在从 Switch 下载…";
-            await _session.DownloadCurrentAsync(CancellationToken.None); await RefreshHistoryAsync();
-        }
         if (!TextPromptWindow.TryShow(_english ? "Enter a ZIP name (empty cancels; a timestamped backup is also created):" : "填写 ZIP 名称（留空则取消；程序会另外生成一份时间戳备份）：", _english ? "Package as ZIP" : "打包为 ZIP", "cheats", _english, out var name)) return;
         if (string.IsNullOrWhiteSpace(name)) return;
-        var result = await CheatZipService.ExportAsync(TitleId, BuildId, name, CancellationToken.None);
+        CheatZipService.EnsureShareTargetWritable(name);
+        StatusMessage = _english ? "Reading the current cheat files from Switch…" : "正在从 Switch 读取当前金手指文件…";
+        var snapshot = await _session.DownloadCurrentForExportAsync(CancellationToken.None);
+        var result = await CheatZipService.ExportAsync(snapshot.TitleId, snapshot.BuildId, name, snapshot.CheatContent, snapshot.NotesContent, CancellationToken.None);
         OpenFolder(Path.GetDirectoryName(result.SharePath)!);
-        StatusMessage = $"分享 ZIP 已生成：{result.SharePath}；时间戳备份已保存到 archives。";
+        StatusMessage = _english
+            ? $"Fresh ZIP created from Switch: {result.SharePath}; a timestamped backup was saved to archives."
+            : $"已用 Switch 当前文件生成 ZIP：{result.SharePath}；时间戳备份已保存到 archives。";
     }
     private async Task ImportZipAsync() { RequireCurrentGameSession(); var dialog = new OpenFileDialog { Filter = "ZIP archive (*.zip)|*.zip" }; if (dialog.ShowDialog() != true) return; await CheatZipService.ImportAsync(dialog.FileName, TitleId, BuildId, CancellationToken.None); StatusMessage = "ZIP 已导入本地镜像；文件将进入待上传区。"; }
     private async Task SaveDevicesAsync()
@@ -761,7 +768,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         RemoteEntries.Clear();
         foreach (var entry in entries) RemoteEntries.Add(entry);
-        RemotePath = path; FtpStatus = $"FTP 已连接 · {RemoteEntries.Count} 项";
+        RemotePath = path; _ftpBrowserLocationInitialized = true; FtpStatus = $"FTP 已连接 · {RemoteEntries.Count} 项";
         StatusMessage = $"已通过独立 FTP 列出 {RemoteEntries.Count} 项；未调用 sys-botbase。";
     }
 
@@ -1104,8 +1111,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task NavigateLibraryAsync() { Page = "Library"; await RefreshHistoryAsync(); }
     private void NavigateTo(string page) { Page = page; _ = AppLog.InfoAsync($"页面切换 | page={page}"); }
     private static async Task<T> LoadAsync<T>(string path, T fallback) { if (!File.Exists(path)) return fallback; await using var stream = File.OpenRead(path); return await JsonSerializer.DeserializeAsync<T>(stream) ?? fallback; }
-    private static async Task SaveAsync<T>(string path, T value) { var temp = path + ".tmp"; await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true })); File.Move(temp, path, true); }
-    private Task SavePendingAsync() => SaveAsync(AppPaths.Pending, PendingUploads.ToList());
+    private static async Task SaveAsync<T>(string path, T value)
+    {
+        var temp = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(temp, path, true);
+        }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
+    }
+
+    private async Task SavePendingAsync()
+    {
+        await _pendingSaveGate.WaitAsync();
+        try { await SaveAsync(AppPaths.Pending, PendingUploads.ToList()); }
+        finally { _pendingSaveGate.Release(); }
+    }
     private void RefreshPendingFilter()
     {
         var view = CollectionViewSource.GetDefaultView(PendingUploads); view.Filter = item => item is PendingUpload pending && SelectedDevice?.Id == pending.DeviceId; view.Refresh();

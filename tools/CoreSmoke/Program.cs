@@ -6,12 +6,15 @@ using Microsoft.Data.Sqlite;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 
 var host = args.FirstOrDefault(arg => !arg.StartsWith("--", StringComparison.Ordinal)) ?? IPAddress.Loopback.ToString();
 var localOnly = args.Contains("--local", StringComparer.OrdinalIgnoreCase);
 var ftpOnly = args.Contains("--ftp-only", StringComparer.OrdinalIgnoreCase);
 var databaseLive = args.Contains("--database-live", StringComparer.OrdinalIgnoreCase);
+var zipLive = args.Contains("--zip-live", StringComparer.OrdinalIgnoreCase);
+var liveZipName = args.FirstOrDefault(arg => arg.StartsWith("--zip-name=", StringComparison.OrdinalIgnoreCase))?["--zip-name=".Length..];
 var session = new DeviceSession();
 await session.InitializeAsync();
 try
@@ -45,6 +48,17 @@ try
     {
         var identity = await session.ConnectAsync(new DeviceProfile { Name = "Smoke Test", Host = host, AutoDetachDmnt = false }, CancellationToken.None);
         Console.WriteLine($"TID={identity.TitleId}"); Console.WriteLine($"BID={identity.BuildId}"); Console.WriteLine($"MAIN={identity.MainBase}"); Console.WriteLine($"HEAP={identity.HeapBase}");
+        if (zipLive)
+        {
+            var snapshot = await session.DownloadCurrentForExportAsync(CancellationToken.None);
+            var liveZip = await CheatZipService.ExportAsync(snapshot.TitleId, snapshot.BuildId, string.IsNullOrWhiteSpace(liveZipName) ? $"live-{snapshot.TitleId}-{snapshot.BuildId}" : liveZipName, snapshot.CheatContent, snapshot.NotesContent, CancellationToken.None);
+            using var archive = ZipFile.OpenRead(liveZip.SharePath);
+            var cheatEntry = archive.GetEntry($"atmosphere/contents/{snapshot.TitleId}/cheats/{snapshot.BuildId}.txt") ?? throw new Exception("Live ZIP is missing the current BID cheat entry");
+            if (!(await ReadEntryAsync(cheatEntry)).SequenceEqual(snapshot.CheatContent)) throw new Exception("Live ZIP cheat content differs from the freshly downloaded Switch content");
+            var notesEntry = archive.GetEntry($"atmosphere/contents/{snapshot.TitleId}/cheats/notes.txt");
+            if (snapshot.NotesContent is null ? notesEntry is not null : notesEntry is null || !(await ReadEntryAsync(notesEntry)).SequenceEqual(snapshot.NotesContent)) throw new Exception("Live ZIP notes content differs from the freshly downloaded Switch content");
+            Console.WriteLine($"ZIP_LIVE_FRESH_CONTENT_OK={liveZip.SharePath}");
+        }
         if (databaseLive)
         {
             const string liveRemark = "只读真机数据库功能测试";
@@ -54,7 +68,7 @@ try
             Console.WriteLine($"DATABASE_LIVE_SAVE_OK={result.Added}|{result.Unchanged}|notes={result.NotesFound}");
         }
     }
-    catch (Exception error) { Console.WriteLine($"SYSBOT_ERROR={error.Message}"); }
+    catch (Exception error) { Console.WriteLine($"SYSBOT_ERROR={error.Message}"); if (zipLive) throw; }
     if (!localOnly) try
     {
         var ftpDevice = new DeviceProfile { Name = "FTP-only Smoke Test", Host = host, FtpPort = 21, AutoDetachDmnt = false };
@@ -76,10 +90,25 @@ try
     catch (Exception error) { Console.WriteLine($"NOEXS_ERROR={error.Message}"); }
     var tid = "0100000000000000"; var bid = "0011223344556677";
     Directory.CreateDirectory(NSCheatManager.Windows.Core.AppPaths.CheatDirectory(tid));
-    await File.WriteAllTextAsync(NSCheatManager.Windows.Core.AppPaths.CheatFile(tid, bid), "[Smoke]\n04000000 00000000 00000000\n");
-    await File.WriteAllTextAsync(NSCheatManager.Windows.Core.AppPaths.NotesFile(tid), "smoke notes");
-    var zip = await NSCheatManager.Windows.Services.CheatZipService.ExportAsync(tid, bid, "smoke.zip", CancellationToken.None);
+    await File.WriteAllTextAsync(NSCheatManager.Windows.Core.AppPaths.CheatFile(tid, bid), "[Stale local cache]\n04000000 00000000 00000000\n");
+    await File.WriteAllTextAsync(NSCheatManager.Windows.Core.AppPaths.NotesFile(tid), "stale local notes");
+    var freshCheat = Encoding.UTF8.GetBytes("[Fresh remote content]\n04000000 00000000 12345678\n");
+    var freshNotes = Encoding.UTF8.GetBytes("fresh remote notes");
+    var dottedName = "最终幻想共鸣 港版中文试玩版v6.1 by761699368";
+    var dottedPath = CheatZipService.EnsureShareTargetWritable(dottedName);
+    if (Path.GetFileName(dottedPath) != dottedName + ".zip") throw new Exception("A version dot in the requested ZIP name was incorrectly treated as a file extension");
+    var lockedPath = Path.Combine(NSCheatManager.Windows.Core.AppPaths.Exports, "locked.zip");
+    await File.WriteAllTextAsync(lockedPath, "locked ZIP placeholder");
+    using (var locked = new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+    {
+        try { _ = CheatZipService.EnsureShareTargetWritable("locked.zip"); throw new Exception("A locked share ZIP was accepted"); }
+        catch (IOException error) when (error.Message.Contains("占用", StringComparison.Ordinal)) { }
+    }
+    var expectedSharePath = Path.Combine(NSCheatManager.Windows.Core.AppPaths.Exports, "smoke.zip");
+    await File.WriteAllTextAsync(expectedSharePath, "old ZIP placeholder");
+    var zip = await NSCheatManager.Windows.Services.CheatZipService.ExportAsync(tid, bid, "smoke.zip", freshCheat, freshNotes, CancellationToken.None);
     if (!File.Exists(zip.SharePath) || !File.Exists(zip.BackupPath)) throw new Exception("ZIP share or backup file is missing");
+    if (!zip.SharePath.Equals(expectedSharePath, StringComparison.OrdinalIgnoreCase)) throw new Exception("A same-name share ZIP was silently renamed instead of replaced");
     if (!Path.GetDirectoryName(zip.SharePath)!.Equals(NSCheatManager.Windows.Core.AppPaths.Exports, StringComparison.OrdinalIgnoreCase)) throw new Exception("Share ZIP was not isolated in the exports directory");
     if (!Path.GetDirectoryName(zip.BackupPath)!.Equals(NSCheatManager.Windows.Core.AppPaths.Archives, StringComparison.OrdinalIgnoreCase)) throw new Exception("Backup ZIP was not isolated in the archives directory");
     using (var archive = ZipFile.OpenRead(zip.SharePath))
@@ -87,7 +116,11 @@ try
         var names = archive.Entries.Select(entry => entry.FullName).OrderBy(x => x).ToArray();
         var expected = new[] { $"atmosphere/contents/{tid}/cheats/{bid}.txt", $"atmosphere/contents/{tid}/cheats/notes.txt" }.OrderBy(x => x).ToArray();
         if (!names.SequenceEqual(expected)) throw new Exception("ZIP entries do not match the expected Atmosphere layout");
+        if (!(await ReadEntryAsync(archive.GetEntry($"atmosphere/contents/{tid}/cheats/{bid}.txt")!)).SequenceEqual(freshCheat)) throw new Exception("ZIP reused stale local cheat content");
+        if (!(await ReadEntryAsync(archive.GetEntry($"atmosphere/contents/{tid}/cheats/notes.txt")!)).SequenceEqual(freshNotes)) throw new Exception("ZIP reused stale local notes content");
     }
+    Console.WriteLine("ZIP_DOTTED_NAME_AND_LOCKED_TARGET_OK");
+    Console.WriteLine("ZIP_REFRESHED_CONTENT_AND_OVERWRITE_OK");
     Console.WriteLine($"ZIP_SHARE_OK={zip.SharePath}");
     Console.WriteLine($"ZIP_BACKUP_OK={zip.BackupPath}");
     if (NSCheatManager.Windows.Protocol.SwitchFtpClient.Normalize("switch/breeze") != "/switch/breeze") throw new Exception("FTP normalize failed");
@@ -242,4 +275,12 @@ static int ReserveUnusedLoopbackPort()
     var port = ((IPEndPoint)listener.LocalEndpoint).Port;
     listener.Stop();
     return port;
+}
+
+static async Task<byte[]> ReadEntryAsync(ZipArchiveEntry entry)
+{
+    await using var input = entry.Open();
+    using var output = new MemoryStream();
+    await input.CopyToAsync(output);
+    return output.ToArray();
 }

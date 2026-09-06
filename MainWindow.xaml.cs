@@ -124,7 +124,7 @@ public partial class MainWindow : Window
         var zhToEn = new Dictionary<string, string>
         {
             ["设备名称"]="Device name",["设备 IPv4"]="Device IPv4",["sys-botbase 端口"]="sys-botbase port",["FTP 端口"]="FTP port",["Noexs 端口"]="Noexs port",
-            ["连接前自动分离 dmnt"]="Detach dmnt before connecting",["FTP 默认进入目录（全局）"]="Default FTP directory (global)",["TXT 文本编辑器路径（FTP 新建文本必须配置）"]="TXT editor path (required for new FTP text files)",["浏览…"]="Browse…",["新增设备"]="Add device",["删除此设备"]="Delete device",
+            ["连接前自动分离 dmnt"]="Detach dmnt before connecting",["FTP 默认进入目录（全局）"]="Default FTP directory (global)",["TXT 文本编辑器路径（留空使用 Windows 默认程序）"]="TXT editor path (empty uses the Windows default app)",["浏览…"]="Browse…",["新增设备"]="Add device",["删除此设备"]="Delete device",
             ["名称"]="Name",["类型"]="Type",["大小"]="Size",["修改时间"]="Modified",["操作"]="Actions",["打开"]="Open",["下载"]="Download",["改名"]="Rename",["删除"]="Delete",
             ["时间"]="Time",["文件"]="File",["离线编辑副本"]="Edit offline copy",["恢复并上传"]="Restore and upload",["刷新"]="Refresh",["移除"]="Remove",
             ["游戏名称设置"]="Game labels",["游戏名"]="Game name",["版本名"]="Version name",["游戏 / TID"]="Game / TID",["版本 / BID"]="Version / BID",["备注"]="Remark"
@@ -149,5 +149,5 @@ public partial class MainWindow : Window
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); if (child is T match) yield return match; foreach (var nested in FindVisualChildren<T>(child)) yield return nested; }
     }
-    internal static string GetVersion() => Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.1";
+    internal static string GetVersion() => Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.2";
 }

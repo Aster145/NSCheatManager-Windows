@@ -140,8 +140,6 @@ public sealed class DeviceSession : IAsyncDisposable
 
     public FtpTextDraft CreateFtpTextDraft(DeviceProfile device, string remoteDirectory, string requestedName)
     {
-        if (string.IsNullOrWhiteSpace(device.TextEditorPath) || !File.Exists(device.TextEditorPath))
-            throw new InvalidOperationException("请先在设置中配置有效的 TXT 文本编辑器路径。");
         var fileName = SwitchFtpClient.NormalizeTextFileName(requestedName);
         var remotePath = SwitchFtpClient.Combine(remoteDirectory, fileName);
         var localDirectory = Path.Combine(AppPaths.DeviceTemp(device.Id, device.Host, device.FtpPort), "new-text", Guid.NewGuid().ToString("N"));
@@ -179,6 +177,18 @@ public sealed class DeviceSession : IAsyncDisposable
         }
         finally { _suppressWatcher = false; }
         await AppLog.InfoAsync($"下载当前金手指完成 | tid={identity.TitleId} | bid={identity.BuildId}");
+    }
+
+    public async Task<CheatExportSnapshot> DownloadCurrentForExportAsync(CancellationToken cancellationToken)
+    {
+        var (device, identity) = RequireSession();
+        var ftp = new SwitchFtpClient(device.Host, device.FtpPort);
+        await AppLog.InfoAsync($"ZIP 打包前读取 Switch 当前文件 | tid={identity.TitleId} | bid={identity.BuildId}");
+        var cheat = await ftp.DownloadAsync(identity.TitleId, identity.BuildId + ".txt", cancellationToken)
+            ?? throw new FileNotFoundException($"Switch 上不存在当前 BID 金手指：{identity.BuildId}.txt");
+        var notes = await ftp.DownloadAsync(identity.TitleId, "notes.txt", cancellationToken);
+        await AppLog.InfoAsync($"ZIP 打包源读取完成 | tid={identity.TitleId} | bid={identity.BuildId} | cheatBytes={cheat.Length} | notesBytes={notes?.Length ?? 0}");
+        return new CheatExportSnapshot(identity.TitleId, identity.BuildId, cheat, notes);
     }
 
     public async Task DownloadFileAsync(string fileName, CancellationToken cancellationToken)
@@ -392,3 +402,4 @@ public sealed class DeviceSession : IAsyncDisposable
 
 public sealed record DatabaseArchiveResult(int Added, int Unchanged, bool NotesFound);
 public sealed record FtpTextDraft(string LocalPath, string RemotePath, string FileName);
+public sealed record CheatExportSnapshot(string TitleId, string BuildId, byte[] CheatContent, byte[]? NotesContent);

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
@@ -34,8 +35,8 @@ internal static class Program
         var window = new MainWindow { ShowInTaskbar = false, Left = -10000, Top = -10000 };
         window.Show();
         Pump(TimeSpan.FromSeconds(1));
-        if (window.FindName("VersionButton") is not Button { Content: string mainVersion } || mainVersion != "v1.0.1  ⓘ")
-            throw new InvalidOperationException("Main-window version is not the final v1.0.1 label.");
+        if (window.FindName("VersionButton") is not Button { Content: string mainVersion } || mainVersion != "v1.0.2  ⓘ")
+            throw new InvalidOperationException("Main-window version is not the final v1.0.2 label.");
         Render(window, Path.Combine(output, "main-window.png"));
         window.Close();
 
@@ -50,6 +51,8 @@ internal static class Program
             throw new InvalidOperationException("Global FTP default directory did not initialize as an absolute path.");
         if (settingsWindow.FindName("NewTextButton") is not Button)
             throw new InvalidOperationException("FTP new-text button is missing.");
+        if (!FindVisualChildren<TextBlock>(settingsWindow).Any(text => text.Text == "TXT 文本编辑器路径（留空使用 Windows 默认程序）"))
+            throw new InvalidOperationException("Settings do not explain that the TXT editor override is optional.");
         Render(settingsWindow, Path.Combine(output, "settings-page.png"));
         settingsWindow.Close();
 
@@ -211,6 +214,11 @@ internal static class Program
         ftpViewModel.NavigateFilesCommand.Execute(null);
         if (ftpViewModel.ConnectionButtonText != "连接" || ftpViewModel.FtpStatus != "FTP 未连接")
             throw new InvalidOperationException("FTP connected without an explicit user action.");
+        ftpViewModel.FtpDefaultDirectory = "/switch/breeze";
+        SetPrivateField(ftpViewModel, "_ftpBrowserLocationInitialized", false);
+        if (InvokePrivateMethod<string>(ftpViewModel, "ResolveFtpListAllPath") != "/switch/breeze")
+            throw new InvalidOperationException("The initial generic FTP browse path ignored the configured default directory.");
+        Console.WriteLine("FTP_DEFAULT_DIRECTORY_AFTER_CHEAT_SESSION_OK");
         Console.WriteLine("FTP_STARTUP_DISCONNECTED_OK");
         Render(ftpWindow, Path.Combine(output, "ftp-page-disconnected.png"));
         if (liveFtp)
@@ -221,7 +229,7 @@ internal static class Program
             ftpViewModel.NavigateFilesCommand.Execute(null);
             ftpViewModel.ListAllFilesCommand.Execute(null);
             PumpUntil(() => ftpViewModel.FtpStatus.StartsWith("FTP 已连接", StringComparison.Ordinal) || ftpViewModel.FtpStatus.Contains("失败", StringComparison.Ordinal), TimeSpan.FromSeconds(10));
-            if (ftpViewModel.RemotePath != "/" || !ftpViewModel.FtpStatus.StartsWith("FTP 已连接", StringComparison.Ordinal))
+            if (ftpViewModel.RemotePath != "/switch/breeze" || !ftpViewModel.FtpStatus.StartsWith("FTP 已连接", StringComparison.Ordinal))
                 throw new InvalidOperationException($"Standalone FTP list-all failed: {ftpViewModel.FtpStatus}");
             if (ftpViewModel.ConnectionStatus != "未连接" || ftpViewModel.TitleId != "—")
                 throw new InvalidOperationException("Standalone FTP unexpectedly created a sys-botbase game session.");
@@ -288,6 +296,8 @@ internal static class Program
         languageButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if ((englishWindow.FindName("NewTextButton") as Button)?.Content?.ToString() != "New text file")
             throw new InvalidOperationException("FTP new-text button did not switch to English.");
+        if (!FindVisualChildren<TextBlock>(englishWindow).Any(text => text.Text == "TXT editor path (empty uses the Windows default app)"))
+            throw new InvalidOperationException("English settings do not explain that the TXT editor override is optional.");
         englishViewModel.NavigateLibraryCommand.Execute(null);
         Pump(TimeSpan.FromMilliseconds(500));
         if ((englishWindow.FindName("SaveToDatabaseButton") as Button)?.Content?.ToString() != "Save to database" ||
@@ -387,7 +397,7 @@ internal static class Program
             !visibleText.Contains(expectedGroup))
             throw new InvalidOperationException($"About window {(english ? "English" : "Chinese")} project/community details are incomplete.");
         if (windowsUrl.Text != "https://github.com/Aster145/NSCheatManager-Windows" ||
-            aboutVersion.Text != "v1.0.1 · win-x64 · portable/self-contained" || aboutVersion.Text.Contains("preview", StringComparison.OrdinalIgnoreCase) ||
+            aboutVersion.Text != "v1.0.2 · win-x64 · portable/self-contained" || aboutVersion.Text.Contains("preview", StringComparison.OrdinalIgnoreCase) ||
             qqNumber.Text != expectedGroup ||
             about.Title != (english ? "About" : "关于"))
             throw new InvalidOperationException($"About window {(english ? "English" : "Chinese")} localization is incorrect.");
@@ -413,6 +423,18 @@ internal static class Program
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    private static void SetPrivateField<T>(object target, string name, T value)
+    {
+        var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic) ?? throw new MissingFieldException(target.GetType().FullName, name);
+        field.SetValue(target, value);
+    }
+
+    private static T InvokePrivateMethod<T>(object target, string name)
+    {
+        var method = target.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic) ?? throw new MissingMethodException(target.GetType().FullName, name);
+        return (T)(method.Invoke(target, null) ?? throw new InvalidOperationException($"{name} returned null."));
     }
 
     private static bool CloseNativeDialogs()
