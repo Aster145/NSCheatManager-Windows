@@ -47,6 +47,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _databaseGameName = "";
     private string _databaseVersionName = "";
     private string _ftpDefaultDirectory = "/";
+    private bool _includeNotesInZip = true;
+    private string _localPublishDirectory = "";
     private bool _initialized;
     public ObservableCollection<DeviceProfile> Devices { get; } = [];
     public ObservableCollection<PendingUpload> PendingUploads { get; } = [];
@@ -107,6 +109,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             RefreshPendingFilter();
             Raise(nameof(VisiblePendingUploads));
+            RaiseLocalPublishState();
             if (_initialized) _ = SaveAppSettingsSafelyAsync(saveFtpDirectory: false);
         }
     }
@@ -123,6 +126,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string DatabaseGameName { get => _databaseGameName; set => Set(ref _databaseGameName, value); }
     public string DatabaseVersionName { get => _databaseVersionName; set => Set(ref _databaseVersionName, value); }
     public string FtpDefaultDirectory { get => _ftpDefaultDirectory; set => Set(ref _ftpDefaultDirectory, value); }
+    public bool IncludeNotesInZip
+    {
+        get => _includeNotesInZip;
+        set
+        {
+            if (!Set(ref _includeNotesInZip, value)) return;
+            if (_initialized) _ = SaveAppSettingsSafelyAsync(saveFtpDirectory: false);
+        }
+    }
+    public string LocalPublishDirectory
+    {
+        get => _localPublishDirectory;
+        set
+        {
+            if (!Set(ref _localPublishDirectory, value)) return;
+            RaiseLocalPublishState();
+        }
+    }
+    public bool CanPublishLocally => Volatile.Read(ref _ftpOperationBusy) == 0 && HasCurrentGameIdentityForSelectedDevice() && HasValidLocalPublishDirectory();
+    public string LocalPublishStatus
+    {
+        get
+        {
+            if (!HasCurrentGameIdentityForSelectedDevice()) return _english ? "Connect and identify the current game first." : "请先连接并识别当前游戏。";
+            if (string.IsNullOrWhiteSpace(LocalPublishDirectory)) return _english ? "Choose a local Git repository in Settings." : "请先在设置中选择本地 Git 仓库。";
+            if (!HasValidLocalPublishDirectory()) return _english ? "The configured local publish directory is unavailable." : "配置的本地发布目录不可用。";
+            return _english ? "Ready to export the current BID file to the local repository." : "可以将当前 BID 文件发布到本地仓库。";
+        }
+    }
     public string SelectedHistorySummary => SelectedHistoryEntry is null
         ? (_english ? "Select a history record" : "请选择一条历史记录")
         : $"{SelectedHistoryEntry.FileDisplay} · {SelectedHistoryEntry.CreatedAt.LocalDateTime:g} · {SelectedHistoryEntry.Size} B";
@@ -148,6 +180,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public DelegateCommand DeleteDeviceCommand { get; }
     public DelegateCommand OpenDataFolderCommand { get; }
     public DelegateCommand OpenLogsFolderCommand { get; }
+    public DelegateCommand OpenPublishDirectoryCommand { get; }
+    public DelegateCommand OpenPublishBackupsCommand { get; }
     public DelegateCommand UploadAllCommand { get; }
     public DelegateCommand UploadOneCommand { get; }
     public DelegateCommand DownloadCommand { get; }
@@ -156,6 +190,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public DelegateCommand ScreenOnCommand { get; }
     public DelegateCommand ScreenOffCommand { get; }
     public DelegateCommand ExportZipCommand { get; }
+    public DelegateCommand PublishLocalCommand { get; }
     public DelegateCommand ImportZipCommand { get; }
     public DelegateCommand OpenCheatCommand { get; }
     public DelegateCommand OpenNotesCommand { get; }
@@ -188,9 +223,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         NavigateGameCommand = new(_ => NavigateTo("Game")); NavigateCheatsCommand = new(_ => NavigateTo("Cheats")); NavigateFilesCommand = new(_ => NavigateTo("Files")); NavigateLibraryCommand = new(async _ => await RunAsync(NavigateLibraryAsync)); NavigateScreensCommand = new(_ => NavigateTo("Screens")); NavigateSettingsCommand = new(_ => NavigateTo("Settings"));
         ConnectCommand = new(async _ => await RunAsync(ConnectAsync)); DisconnectCommand = new(async _ => await RunAsync(DisconnectAsync)); ToggleConnectionCommand = new(async _ => await RunFtpOperationAsync(ToggleFtpAsync));
         SaveDeviceCommand = new(async _ => await RunAsync(SaveDevicesAsync)); AddDeviceCommand = new(_ => AddDevice()); DeleteDeviceCommand = new(_ => DeleteDevice());
-        OpenDataFolderCommand = new(async _ => await RunAsync(() => OpenFolderAsync(AppPaths.Root))); OpenLogsFolderCommand = new(async _ => await RunAsync(() => OpenFolderAsync(AppPaths.Logs))); UploadAllCommand = new(async _ => await RunFtpOperationAsync(UploadAllAsync)); UploadOneCommand = new(async value => await RunFtpOperationAsync(() => UploadOneAsync(value as PendingUpload)));
+        OpenDataFolderCommand = new(async _ => await RunAsync(() => OpenFolderAsync(AppPaths.Root))); OpenLogsFolderCommand = new(async _ => await RunAsync(() => OpenFolderAsync(AppPaths.Logs))); OpenPublishDirectoryCommand = new(async _ => await RunAsync(OpenPublishDirectoryAsync)); OpenPublishBackupsCommand = new(async _ => await RunAsync(() => OpenFolderAsync(AppPaths.PublishBackups))); UploadAllCommand = new(async _ => await RunFtpOperationAsync(UploadAllAsync)); UploadOneCommand = new(async value => await RunFtpOperationAsync(() => UploadOneAsync(value as PendingUpload)));
         DownloadCommand = new(async _ => await RunFtpOperationAsync(DownloadAsync)); DetachDmntCommand = new(async _ => await RunAsync(DetachDmntAsync)); ScreenshotCommand = new(async _ => await RunAsync(ScreenshotAsync)); ScreenOnCommand = new(async _ => await RunAsync(() => ScreenAsync(true))); ScreenOffCommand = new(async _ => await RunAsync(() => ScreenAsync(false)));
-        ExportZipCommand = new(async _ => await RunFtpOperationAsync(ExportZipAsync)); ImportZipCommand = new(async _ => await RunAsync(ImportZipAsync)); OpenCheatCommand = new(_ => OpenCheat()); OpenNotesCommand = new(_ => OpenNotes());
+        ExportZipCommand = new(async _ => await RunFtpOperationAsync(ExportZipAsync)); PublishLocalCommand = new(async _ => await RunFtpOperationAsync(PublishLocalAsync)); ImportZipCommand = new(async _ => await RunAsync(ImportZipAsync)); OpenCheatCommand = new(_ => OpenCheat()); OpenNotesCommand = new(_ => OpenNotes());
         RefreshFilesCommand = new(async _ => await RunFtpOperationAsync(RefreshFilesAsync));
         CreateTextCommand = new(async _ => await RunAsync(CreateTextAsync));
         OpenRemoteFileCommand = new(async value => await RunFtpOperationAsync(() => OpenRemoteFileAsync(value as RemoteTextFile ?? SelectedRemoteFile)));
@@ -221,6 +256,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         AppPaths.Ensure(); await _session.InitializeAsync();
         _appSettings = await LoadAsync(AppPaths.Settings, new AppSettings());
+        IncludeNotesInZip = _appSettings.IncludeNotesInZip;
+        LocalPublishDirectory = _appSettings.LocalPublishDirectory?.Trim() ?? "";
         var savedFtpDefaultDirectory = _appSettings.FtpDefaultDirectory;
         try { FtpDefaultDirectory = SwitchFtpClient.NormalizeConfiguredDirectory(savedFtpDefaultDirectory); }
         catch (ArgumentException)
@@ -308,6 +345,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SelectedHistoryEntry = null;
             await RefreshHistoryAsync();
             await LoadDatabaseMetadataAsync(TitleId, BuildId);
+            RaiseLocalPublishState();
         }
         catch
         {
@@ -316,6 +354,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ConnectionStatusBrush = Brushes.Firebrick;
             TitleId = BuildId = MainBase = HeapBase = "—";
             ClearCurrentCheatView("请先连接并识别游戏");
+            RaiseLocalPublishState();
             throw;
         }
     }
@@ -332,6 +371,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             DmntStatus = "未请求";
             ClearCurrentCheatView("尚未连接");
             StatusMessage = "sys-botbase 已断开。";
+            RaiseLocalPublishState();
         }
         finally { _gameSessionGate.Release(); }
     }
@@ -340,7 +380,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         && string.Equals(_ftpConnectedHost, SelectedDevice.Host, StringComparison.OrdinalIgnoreCase)
         && _ftpConnectedPort == SelectedDevice.FtpPort;
     public string ConnectionButtonText => _english ? (IsFtpConnected ? "Disconnect" : "Connect") : (IsFtpConnected ? "断开" : "连接");
-    public void SetLanguage(bool english) { _english = english; Raise(nameof(ConnectionButtonText)); Raise(nameof(SelectedHistorySummary)); }
+    public void SetLanguage(bool english) { _english = english; Raise(nameof(ConnectionButtonText)); Raise(nameof(SelectedHistorySummary)); RaiseLocalPublishState(); }
 
     private DeviceProfile RequireSelectedDevice()
     {
@@ -712,18 +752,50 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(name)) return;
         CheatZipService.EnsureShareTargetWritable(name);
         StatusMessage = _english ? "Reading the current cheat files from Switch…" : "正在从 Switch 读取当前金手指文件…";
-        var snapshot = await _session.DownloadCurrentForExportAsync(CancellationToken.None);
+        var snapshot = await _session.DownloadCurrentForExportAsync(IncludeNotesInZip, CancellationToken.None);
         var result = await CheatZipService.ExportAsync(snapshot.TitleId, snapshot.BuildId, name, snapshot.CheatContent, snapshot.NotesContent, CancellationToken.None);
         OpenFolder(Path.GetDirectoryName(result.SharePath)!);
-        StatusMessage = _english
-            ? $"Fresh ZIP created from Switch: {result.SharePath}; a timestamped backup was saved to archives."
-            : $"已用 Switch 当前文件生成 ZIP：{result.SharePath}；时间戳备份已保存到 archives。";
+        var notesMissing = IncludeNotesInZip && snapshot.NotesContent is null;
+        if (notesMissing) await AppLog.WarningAsync($"ZIP 已跳过不存在的 notes.txt | tid={snapshot.TitleId} | bid={snapshot.BuildId}");
+        StatusMessage = notesMissing
+            ? (_english ? $"ZIP created without notes.txt because it was not found: {result.SharePath}" : $"未找到 notes.txt，已跳过并生成 ZIP：{result.SharePath}")
+            : (_english ? $"Fresh ZIP created from Switch: {result.SharePath}; a timestamped backup was saved to archives." : $"已用 Switch 当前文件生成 ZIP：{result.SharePath}；时间戳备份已保存到 archives。");
+    }
+
+    private async Task PublishLocalAsync()
+    {
+        RequireCurrentGameSession(requireSameFtpPort: true);
+        var repositoryRoot = LocalCheatPublishService.ValidateRepositoryRoot(LocalPublishDirectory, verifyWritable: true);
+        StatusMessage = _english ? "Reading the current BID file from Switch…" : "正在从 Switch 读取当前 BID 文件…";
+        var snapshot = await _session.DownloadCurrentForExportAsync(includeNotes: false, CancellationToken.None);
+        var preview = LocalCheatPublishService.Inspect(repositoryRoot, snapshot.TitleId, snapshot.BuildId, snapshot.CheatContent);
+        if (preview.Change == LocalPublishChange.Changed)
+        {
+            var message = _english
+                ? $"The local repository already contains a different BID file. Back up and overwrite it?\n\n{preview.TargetPath}\nExisting: {preview.ExistingBytes} B\nNew: {preview.NewBytes} B"
+                : $"本地仓库中已存在内容不同的 BID 文件。是否先备份再覆盖？\n\n{preview.TargetPath}\n旧文件：{preview.ExistingBytes} B\n新文件：{preview.NewBytes} B";
+            if (MessageBox.Show(message, _english ? "Confirm local publish" : "确认发布到本地目录", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                StatusMessage = _english ? "Local publish was cancelled; no file was changed." : "已取消发布；没有修改任何文件。";
+                return;
+            }
+        }
+
+        var result = await LocalCheatPublishService.PublishAsync(preview, snapshot.CheatContent, CancellationToken.None);
+        OpenFileInFolder(result.TargetPath);
+        StatusMessage = result.Change == LocalPublishChange.Unchanged
+            ? (_english ? $"The local repository is already up to date: {result.TargetPath}" : $"本地仓库已是最新：{result.TargetPath}")
+            : result.BackupPath is null
+                ? (_english ? $"Published to local directory: {result.TargetPath}" : $"已发布到本地目录：{result.TargetPath}")
+                : (_english ? $"Published to local directory; the previous file was backed up: {result.TargetPath}" : $"已发布到本地目录，旧文件已备份：{result.TargetPath}");
     }
     private async Task ImportZipAsync() { RequireCurrentGameSession(); var dialog = new OpenFileDialog { Filter = "ZIP archive (*.zip)|*.zip" }; if (dialog.ShowDialog() != true) return; await CheatZipService.ImportAsync(dialog.FileName, TitleId, BuildId, CancellationToken.None); StatusMessage = "ZIP 已导入本地镜像；文件将进入待上传区。"; }
     private async Task SaveDevicesAsync()
     {
         ValidateDevices();
         FtpDefaultDirectory = SwitchFtpClient.NormalizeConfiguredDirectory(FtpDefaultDirectory);
+        if (!string.IsNullOrWhiteSpace(LocalPublishDirectory))
+            LocalPublishDirectory = LocalCheatPublishService.ValidateRepositoryRoot(LocalPublishDirectory, verifyWritable: true);
         var reconnect = _session.Device is not null; var ftpWasConnected = IsFtpConnected;
         await SaveAsync(AppPaths.Devices, Devices.ToList());
         await SaveAppSettingsAsync(saveFtpDirectory: true);
@@ -847,6 +919,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
             && sessionDevice.SysBotbasePort == device.SysBotbasePort
             && (!requireSameFtpPort || sessionDevice.FtpPort == device.FtpPort)
             && (!requireSameNoexsPort || sessionDevice.NoexsPort == device.NoexsPort);
+    }
+
+    private bool HasCurrentGameIdentityForSelectedDevice() =>
+        SelectedDevice is not null && HasCurrentGameIdentityFor(SelectedDevice, requireSameFtpPort: true);
+
+    private bool HasValidLocalPublishDirectory()
+    {
+        if (string.IsNullOrWhiteSpace(LocalPublishDirectory)) return false;
+        try
+        {
+            _ = LocalCheatPublishService.ValidateRepositoryRoot(LocalPublishDirectory, verifyWritable: false);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private void RaiseLocalPublishState()
+    {
+        Raise(nameof(CanPublishLocally));
+        Raise(nameof(LocalPublishStatus));
     }
 
     private bool HasAutomaticallyIdentifiedGameIdentityFor(DeviceProfile device, bool requireSameFtpPort = false) =>
@@ -1063,6 +1155,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             await AppLog.WarningAsync($"忽略并发 FTP 操作 | {operation}");
             return;
         }
+        RaiseLocalPublishState();
 
         try
         {
@@ -1076,7 +1169,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
             }, operation);
         }
-        finally { Interlocked.Exchange(ref _ftpOperationBusy, 0); }
+        finally { Interlocked.Exchange(ref _ftpOperationBusy, 0); RaiseLocalPublishState(); }
     }
 
     private static bool IsFtpConnectionFailure(Exception error)
@@ -1107,7 +1200,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         finally { Raise(nameof(ConnectionButtonText)); }
     }
     private static void OpenFolder(string path) => Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+    private static void OpenFileInFolder(string path) => Process.Start(new ProcessStartInfo { FileName = "explorer.exe", Arguments = $"/select,\"{path}\"", UseShellExecute = true });
     private static Task OpenFolderAsync(string path) { OpenFolder(path); return Task.CompletedTask; }
+    private Task OpenPublishDirectoryAsync()
+    {
+        var root = LocalCheatPublishService.ValidateRepositoryRoot(LocalPublishDirectory, verifyWritable: false);
+        OpenFolder(root);
+        return Task.CompletedTask;
+    }
     private async Task NavigateLibraryAsync() { Page = "Library"; await RefreshHistoryAsync(); }
     private void NavigateTo(string page) { Page = page; _ = AppLog.InfoAsync($"页面切换 | page={page}"); }
     private static async Task<T> LoadAsync<T>(string path, T fallback) { if (!File.Exists(path)) return fallback; await using var stream = File.OpenRead(path); return await JsonSerializer.DeserializeAsync<T>(stream) ?? fallback; }
@@ -1144,6 +1244,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             _appSettings.LastSelectedDeviceId = SelectedDevice?.Id;
+            _appSettings.IncludeNotesInZip = IncludeNotesInZip;
+            _appSettings.LocalPublishDirectory = LocalPublishDirectory.Trim();
             if (saveFtpDirectory)
                 _appSettings.FtpDefaultDirectory = SwitchFtpClient.NormalizeConfiguredDirectory(FtpDefaultDirectory);
             await SaveAsync(AppPaths.Settings, _appSettings);

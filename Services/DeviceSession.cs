@@ -179,15 +179,15 @@ public sealed class DeviceSession : IAsyncDisposable
         await AppLog.InfoAsync($"下载当前金手指完成 | tid={identity.TitleId} | bid={identity.BuildId}");
     }
 
-    public async Task<CheatExportSnapshot> DownloadCurrentForExportAsync(CancellationToken cancellationToken)
+    public async Task<CheatExportSnapshot> DownloadCurrentForExportAsync(bool includeNotes, CancellationToken cancellationToken)
     {
         var (device, identity) = RequireSession();
         var ftp = new SwitchFtpClient(device.Host, device.FtpPort);
-        await AppLog.InfoAsync($"ZIP 打包前读取 Switch 当前文件 | tid={identity.TitleId} | bid={identity.BuildId}");
+        await AppLog.InfoAsync($"读取 Switch 当前发布文件 | tid={identity.TitleId} | bid={identity.BuildId} | includeNotes={includeNotes}");
         var cheat = await ftp.DownloadAsync(identity.TitleId, identity.BuildId + ".txt", cancellationToken)
             ?? throw new FileNotFoundException($"Switch 上不存在当前 BID 金手指：{identity.BuildId}.txt");
-        var notes = await ftp.DownloadAsync(identity.TitleId, "notes.txt", cancellationToken);
-        await AppLog.InfoAsync($"ZIP 打包源读取完成 | tid={identity.TitleId} | bid={identity.BuildId} | cheatBytes={cheat.Length} | notesBytes={notes?.Length ?? 0}");
+        var notes = includeNotes ? await ftp.DownloadAsync(identity.TitleId, "notes.txt", cancellationToken) : null;
+        await AppLog.InfoAsync($"Switch 当前发布文件读取完成 | tid={identity.TitleId} | bid={identity.BuildId} | cheatBytes={cheat.Length} | notesBytes={notes?.Length ?? 0}");
         return new CheatExportSnapshot(identity.TitleId, identity.BuildId, cheat, notes);
     }
 

@@ -2,7 +2,7 @@
 param()
 
 $projectRoot = $PSScriptRoot
-$version = '1.0.2'
+$version = '1.0.3'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $outputPath = Join-Path $projectRoot "artifacts\release-staging\$version-$stamp"
 New-Item -ItemType Directory -Path $outputPath -ErrorAction Stop | Out-Null
@@ -34,4 +34,13 @@ if (($actualNames -join "`n") -ne (($expectedNames | Sort-Object) -join "`n")) {
     throw "Unexpected release-staging content: $($actualNames -join ', ')"
 }
 
+$artifactsPath = Join-Path $projectRoot 'artifacts'
+$packagePath = Join-Path $artifactsPath "NSCheatManager-Windows-v$version-win-x64.zip"
+if (Test-Path -LiteralPath $packagePath) {
+    Remove-Item -LiteralPath $packagePath -Force -ErrorAction Stop
+}
+Compress-Archive -Path (Join-Path $outputPath '*') -DestinationPath $packagePath -CompressionLevel Optimal -ErrorAction Stop
+
 Write-Output "Clean portable staging: $outputPath"
+Write-Output "Portable ZIP: $packagePath"
+Write-Output "SHA-256: $((Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash)"

@@ -50,7 +50,7 @@ try
         Console.WriteLine($"TID={identity.TitleId}"); Console.WriteLine($"BID={identity.BuildId}"); Console.WriteLine($"MAIN={identity.MainBase}"); Console.WriteLine($"HEAP={identity.HeapBase}");
         if (zipLive)
         {
-            var snapshot = await session.DownloadCurrentForExportAsync(CancellationToken.None);
+            var snapshot = await session.DownloadCurrentForExportAsync(includeNotes: true, CancellationToken.None);
             var liveZip = await CheatZipService.ExportAsync(snapshot.TitleId, snapshot.BuildId, string.IsNullOrWhiteSpace(liveZipName) ? $"live-{snapshot.TitleId}-{snapshot.BuildId}" : liveZipName, snapshot.CheatContent, snapshot.NotesContent, CancellationToken.None);
             using var archive = ZipFile.OpenRead(liveZip.SharePath);
             var cheatEntry = archive.GetEntry($"atmosphere/contents/{snapshot.TitleId}/cheats/{snapshot.BuildId}.txt") ?? throw new Exception("Live ZIP is missing the current BID cheat entry");
@@ -119,10 +119,69 @@ try
         if (!(await ReadEntryAsync(archive.GetEntry($"atmosphere/contents/{tid}/cheats/{bid}.txt")!)).SequenceEqual(freshCheat)) throw new Exception("ZIP reused stale local cheat content");
         if (!(await ReadEntryAsync(archive.GetEntry($"atmosphere/contents/{tid}/cheats/notes.txt")!)).SequenceEqual(freshNotes)) throw new Exception("ZIP reused stale local notes content");
     }
+    var zipWithoutNotes = await CheatZipService.ExportAsync(tid, bid, "smoke-without-notes.zip", freshCheat, null, CancellationToken.None);
+    using (var archive = ZipFile.OpenRead(zipWithoutNotes.SharePath))
+    {
+        if (archive.Entries.Count != 1 || archive.GetEntry($"atmosphere/contents/{tid}/cheats/{bid}.txt") is null || archive.GetEntry($"atmosphere/contents/{tid}/cheats/notes.txt") is not null)
+            throw new Exception("ZIP excluded-notes mode did not contain exactly the BID file");
+    }
     Console.WriteLine("ZIP_DOTTED_NAME_AND_LOCKED_TARGET_OK");
     Console.WriteLine("ZIP_REFRESHED_CONTENT_AND_OVERWRITE_OK");
+    Console.WriteLine("ZIP_OPTIONAL_NOTES_OK");
     Console.WriteLine($"ZIP_SHARE_OK={zip.SharePath}");
     Console.WriteLine($"ZIP_BACKUP_OK={zip.BackupPath}");
+    var publishProbeRoot = Path.Combine(Path.GetTempPath(), "nscheatmanager-publish-smoke", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(Path.Combine(publishProbeRoot, ".git"));
+    try
+    {
+        var firstPreview = LocalCheatPublishService.Inspect(publishProbeRoot, tid, bid, freshCheat);
+        if (firstPreview.Change != LocalPublishChange.New) throw new Exception("New local publish target was not classified as new");
+        var firstPublish = await LocalCheatPublishService.PublishAsync(firstPreview, freshCheat, CancellationToken.None);
+        var expectedTarget = Path.Combine(publishProbeRoot, "atmosphere", "contents", tid, "cheats", bid + ".txt");
+        if (!firstPublish.TargetPath.Equals(expectedTarget, StringComparison.OrdinalIgnoreCase) || !(await File.ReadAllBytesAsync(expectedTarget)).SequenceEqual(freshCheat))
+            throw new Exception("Local publish did not create the exact Atmosphere target");
+
+        var unchangedWriteTime = File.GetLastWriteTimeUtc(expectedTarget);
+        var unchangedPreview = LocalCheatPublishService.Inspect(publishProbeRoot, tid, bid, freshCheat);
+        var unchangedPublish = await LocalCheatPublishService.PublishAsync(unchangedPreview, freshCheat, CancellationToken.None);
+        if (unchangedPublish.Change != LocalPublishChange.Unchanged || unchangedPublish.BackupPath is not null || File.GetLastWriteTimeUtc(expectedTarget) != unchangedWriteTime)
+            throw new Exception("Unchanged local publish rewrote or backed up the target");
+
+        var changedContent = Encoding.UTF8.GetBytes("[Changed publish content]\n04000000 00000000 ABCDEF01\n");
+        var changedPreview = LocalCheatPublishService.Inspect(publishProbeRoot, tid, bid, changedContent);
+        var changedPublish = await LocalCheatPublishService.PublishAsync(changedPreview, changedContent, CancellationToken.None);
+        if (changedPublish.Change != LocalPublishChange.Changed || changedPublish.BackupPath is null || !(await File.ReadAllBytesAsync(changedPublish.BackupPath)).SequenceEqual(freshCheat) || !(await File.ReadAllBytesAsync(expectedTarget)).SequenceEqual(changedContent))
+            throw new Exception("Changed local publish did not verify a backup before replacement");
+
+        var replacement = Encoding.UTF8.GetBytes("[Backup failure replacement]\n04000000 00000000 99999999\n");
+        var failurePreview = LocalCheatPublishService.Inspect(publishProbeRoot, tid, bid, replacement);
+        var blockedBackupRoot = Path.Combine(publishProbeRoot, "backup-blocker");
+        await File.WriteAllTextAsync(blockedBackupRoot, "not a directory");
+        try
+        {
+            await LocalCheatPublishService.PublishAsync(failurePreview, replacement, CancellationToken.None, blockedBackupRoot);
+            throw new Exception("Local publish continued after its backup path failed");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        if (!(await File.ReadAllBytesAsync(expectedTarget)).SequenceEqual(changedContent))
+            throw new Exception("Backup failure modified the existing local publish target");
+
+        var notRepository = Path.Combine(publishProbeRoot, "not-repository");
+        Directory.CreateDirectory(notRepository);
+        try { _ = LocalCheatPublishService.ValidateRepositoryRoot(notRepository, verifyWritable: true); throw new Exception("Non-Git local publish root was accepted"); }
+        catch (InvalidOperationException error) when (error.Message.Contains(".git", StringComparison.Ordinal)) { }
+        try { _ = LocalCheatPublishService.Inspect(publishProbeRoot, "bad", bid, freshCheat); throw new Exception("Invalid TID was accepted for local publish"); }
+        catch (ArgumentException) { }
+        Console.WriteLine("LOCAL_PUBLISH_NEW_UNCHANGED_CHANGED_BACKUP_OK");
+        Console.WriteLine("LOCAL_PUBLISH_BACKUP_FAILURE_ABORT_OK");
+        Console.WriteLine("LOCAL_PUBLISH_REPOSITORY_AND_ID_VALIDATION_OK");
+    }
+    finally
+    {
+        var expectedParent = Path.Combine(Path.GetTempPath(), "nscheatmanager-publish-smoke");
+        if (Path.GetFullPath(publishProbeRoot).StartsWith(Path.GetFullPath(expectedParent) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            Directory.Delete(publishProbeRoot, true);
+    }
     if (NSCheatManager.Windows.Protocol.SwitchFtpClient.Normalize("switch/breeze") != "/switch/breeze") throw new Exception("FTP normalize failed");
     if (NSCheatManager.Windows.Protocol.SwitchFtpClient.Parent("/switch/breeze/cheats") != "/switch/breeze") throw new Exception("FTP parent failed");
     try { _ = NSCheatManager.Windows.Protocol.SwitchFtpClient.Normalize("/switch/../Nintendo"); throw new Exception("FTP traversal was accepted"); } catch (ArgumentException) { }

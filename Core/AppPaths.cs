@@ -19,10 +19,11 @@ public static class AppPaths
     public static string Temporary => Path.Combine(Root, "temp");
     public static string Logs => Path.Combine(Root, "logs");
     public static string Downloads => Path.Combine(Root, "downloads");
+    public static string PublishBackups => Path.Combine(Root, "publish-backups");
 
     public static void Ensure()
     {
-        foreach (var path in new[] { Root, Mirror, Archives, Exports, Screenshots, Temporary, Logs, Downloads }) Directory.CreateDirectory(path);
+        foreach (var path in new[] { Root, Mirror, Archives, Exports, Screenshots, Temporary, Logs, Downloads, PublishBackups }) Directory.CreateDirectory(path);
     }
 
     public static string CheatDirectory(string titleId) => Path.Combine(Mirror, "atmosphere", "contents", titleId, "cheats");

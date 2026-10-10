@@ -64,6 +64,27 @@ public partial class MainWindow : Window
         var dialog = new OpenFileDialog { Filter = "Programs (*.exe)|*.exe" };
         if (dialog.ShowDialog() == true && _viewModel.SelectedDevice is not null) { _viewModel.SelectedDevice.TextEditorPath = dialog.FileName; await AppLog.InfoAsync($"已选择 TXT 编辑器 | path={dialog.FileName}"); }
     }
+    private async void BrowsePublishDirectory_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = _english ? "Choose an existing Git repository" : "选择现有 Git 仓库",
+            Multiselect = false
+        };
+        if (Directory.Exists(_viewModel.LocalPublishDirectory))
+            dialog.InitialDirectory = _viewModel.LocalPublishDirectory;
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            _viewModel.LocalPublishDirectory = LocalCheatPublishService.ValidateRepositoryRoot(dialog.FolderName, verifyWritable: true);
+            await AppLog.InfoAsync($"已选择本地发布目录 | path={_viewModel.LocalPublishDirectory}");
+        }
+        catch (Exception error)
+        {
+            await AppLog.ErrorAsync("选择本地发布目录失败", error);
+            MessageBox.Show(error.Message, _english ? "Local publish directory" : "本地发布目录", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
     private async void VersionButton_Click(object sender, RoutedEventArgs e) { await AppLog.InfoAsync("打开版本信息窗口"); new AboutWindow(_english) { Owner = this }.ShowDialog(); }
     private async void PinButton_Click(object sender, RoutedEventArgs e)
     {
@@ -79,20 +100,20 @@ public partial class MainWindow : Window
         {
             [DeviceLabel]="Device",[GameNavLabel]="Game Information",[CheatsNavLabel]="Cheats",[FtpNavLabel]="FTP",[DatabaseNavLabel]="Local Database",[ScreenNavLabel]="Screenshots & Screen",[SettingsNavLabel]="Settings",
             [GameTitle]="Game Information",[GameSubtitle]="The default device session uses sys-botbase",[ConnectButton]="Connect",[DisconnectButton]="Disconnect",[SessionOps]="Session actions",[DetachButton]="Detach dmnt",[GoFtpButton]="Open FTP",
-            [CheatsTitle]="Cheats",[CheatsSubtitle]="Auto-identify and connect; current BID.txt and notes.txt only",[FtpTitle]="FTP",[ListAllButton]="List all files",[DownloadCheatButton]="Download from Switch",[SaveCheatToDatabaseButton]="Save to DB",[ImportZipButton]="Import ZIP",[ExportZipButton]="Package ZIP",[NewTextButton]="New text file",[NewFolderButton]="New folder",[BackButton]="← Parent",[CheatBackButton]="← Parent",
+            [CheatsTitle]="Cheats",[CheatsSubtitle]="Auto-identify and connect; current BID.txt and notes.txt only",[FtpTitle]="FTP",[ListAllButton]="List all files",[DownloadCheatButton]="Download from Switch",[SaveCheatToDatabaseButton]="Save to DB",[ImportZipButton]="Import ZIP",[ExportZipButton]="Package ZIP",[PublishLocalButton]="Publish to local directory",[NewTextButton]="New text file",[NewFolderButton]="New folder",[BackButton]="← Parent",[CheatBackButton]="← Parent",
             [DropTitle]="Drop one or more files here",[DropHelp]="Adds to confirmation queue; never auto-uploads; folders are rejected",[ConfirmUploadButton]="Confirm all uploads",
             [DatabaseTitle]="Local Database",[DatabaseSubtitle]="Manually save, edit offline and restore versions",[SaveToDatabaseButton]="Save to database",[SaveDatabaseLabelsButton]="Save names",[EditSelectedHistoryButton]="Edit offline",[SaveSelectedHistoryEditButton]="Save edit",[RestoreSelectedHistoryButton]="Restore & upload",[OpenDataButton]="Open data folder",
             [ScreensTitle]="Screenshots & Screen",[ScreensSubtitle]="Leave the name empty to use a timestamp",[OpenScreensButton]="Open screenshots folder",[CaptureTitle]="Capture screenshot",[CaptureButton]="Capture",[ScreenOnButton]="Screen on",[ScreenOffButton]="Screen off",
-            [SettingsTitle]="Settings",[SettingsSubtitle]="Save device parameters and the global FTP default directory",[SaveSettingsButton]="Save settings",[OpenLogsButton]="Open logs folder"
+            [SettingsTitle]="Settings",[SettingsSubtitle]="Save device parameters, FTP default directory and local publish directory",[SaveSettingsButton]="Save settings",[BrowsePublishButton]="Choose folder…",[OpenPublishDirectoryButton]="Open publish directory",[OpenPublishBackupsButton]="Open publish backups",[OpenLogsButton]="Open logs folder"
         } : new Dictionary<FrameworkElement, string>
         {
             [DeviceLabel]="要连接的设备",[GameNavLabel]="游戏信息",[CheatsNavLabel]="金手指",[FtpNavLabel]="FTP 功能",[DatabaseNavLabel]="本地数据库",[ScreenNavLabel]="截图与屏幕",[SettingsNavLabel]="设置",
             [GameTitle]="游戏信息",[GameSubtitle]="默认通过 sys-botbase 建立设备会话",[ConnectButton]="连接",[DisconnectButton]="断开",[SessionOps]="会话操作",[DetachButton]="分离 dmnt",[GoFtpButton]="打开 FTP 功能",
-            [CheatsTitle]="金手指",[CheatsSubtitle]="点击后自动识别并连接，仅显示当前 BID.txt 与 notes.txt",[FtpTitle]="FTP 功能",[ListAllButton]="列出全部文件",[DownloadCheatButton]="从 Switch 下载金手指",[SaveCheatToDatabaseButton]="写入数据库",[ImportZipButton]="导入 ZIP",[ExportZipButton]="打包为 ZIP",[NewTextButton]="新建文本文件",[NewFolderButton]="新建文件夹",[BackButton]="← 上级",[CheatBackButton]="← 上级",
+            [CheatsTitle]="金手指",[CheatsSubtitle]="点击后自动识别并连接，仅显示当前 BID.txt 与 notes.txt",[FtpTitle]="FTP 功能",[ListAllButton]="列出全部文件",[DownloadCheatButton]="从 Switch 下载金手指",[SaveCheatToDatabaseButton]="写入数据库",[ImportZipButton]="导入 ZIP",[ExportZipButton]="打包为 ZIP",[PublishLocalButton]="发布到本地目录",[NewTextButton]="新建文本文件",[NewFolderButton]="新建文件夹",[BackButton]="← 上级",[CheatBackButton]="← 上级",
             [DropTitle]="拖放一个或多个文件到这里",[DropHelp]="只加入待确认区，不会自动上传；不接受文件夹",[ConfirmUploadButton]="确认上传全部",
             [DatabaseTitle]="本地数据库",[DatabaseSubtitle]="手动写入、离线编辑和恢复历史版本",[SaveToDatabaseButton]="写入数据库",[SaveDatabaseLabelsButton]="保存名称",[EditSelectedHistoryButton]="离线编辑",[SaveSelectedHistoryEditButton]="保存编辑",[RestoreSelectedHistoryButton]="恢复并上传",[OpenDataButton]="打开 data 目录",
             [ScreensTitle]="截图与屏幕",[ScreensSubtitle]="文件名留空时使用当前时间戳",[OpenScreensButton]="打开截图目录",[CaptureTitle]="截取屏幕",[CaptureButton]="截图",[ScreenOnButton]="亮屏",[ScreenOffButton]="熄屏",
-            [SettingsTitle]="设置",[SettingsSubtitle]="保存设备参数和全局 FTP 默认目录",[SaveSettingsButton]="保存设置",[OpenLogsButton]="打开日志文件夹"
+            [SettingsTitle]="设置",[SettingsSubtitle]="保存设备参数、FTP 默认目录和本地发布目录",[SaveSettingsButton]="保存设置",[BrowsePublishButton]="选择目录…",[OpenPublishDirectoryButton]="打开发布目录",[OpenPublishBackupsButton]="打开发布备份目录",[OpenLogsButton]="打开日志文件夹"
         };
         foreach (var item in map) if (item.Key is TextBlock text) text.Text = item.Value; else if (item.Key is Button button) button.Content = item.Value;
         TranslateRemaining(_english);
@@ -124,7 +145,7 @@ public partial class MainWindow : Window
         var zhToEn = new Dictionary<string, string>
         {
             ["设备名称"]="Device name",["设备 IPv4"]="Device IPv4",["sys-botbase 端口"]="sys-botbase port",["FTP 端口"]="FTP port",["Noexs 端口"]="Noexs port",
-            ["连接前自动分离 dmnt"]="Detach dmnt before connecting",["FTP 默认进入目录（全局）"]="Default FTP directory (global)",["TXT 文本编辑器路径（留空使用 Windows 默认程序）"]="TXT editor path (empty uses the Windows default app)",["浏览…"]="Browse…",["新增设备"]="Add device",["删除此设备"]="Delete device",
+            ["连接前自动分离 dmnt"]="Detach dmnt before connecting",["FTP 默认进入目录（全局）"]="Default FTP directory (global)",["TXT 文本编辑器路径（留空使用 Windows 默认程序）"]="TXT editor path (empty uses the Windows default app)",["本地发布目录（现有 Git 仓库）"]="Local publish directory (existing Git repository)",["包含 notes.txt"]="Include notes.txt",["浏览…"]="Browse…",["选择目录…"]="Choose folder…",["打开发布目录"]="Open publish directory",["打开发布备份目录"]="Open publish backups",["新增设备"]="Add device",["删除此设备"]="Delete device",
             ["名称"]="Name",["类型"]="Type",["大小"]="Size",["修改时间"]="Modified",["操作"]="Actions",["打开"]="Open",["下载"]="Download",["改名"]="Rename",["删除"]="Delete",
             ["时间"]="Time",["文件"]="File",["离线编辑副本"]="Edit offline copy",["恢复并上传"]="Restore and upload",["刷新"]="Refresh",["移除"]="Remove",
             ["游戏名称设置"]="Game labels",["游戏名"]="Game name",["版本名"]="Version name",["游戏 / TID"]="Game / TID",["版本 / BID"]="Version / BID",["备注"]="Remark"
@@ -149,5 +170,5 @@ public partial class MainWindow : Window
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); if (child is T match) yield return match; foreach (var nested in FindVisualChildren<T>(child)) yield return nested; }
     }
-    internal static string GetVersion() => Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.2";
+    internal static string GetVersion() => Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.3";
 }

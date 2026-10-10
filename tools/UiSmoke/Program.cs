@@ -35,8 +35,8 @@ internal static class Program
         var window = new MainWindow { ShowInTaskbar = false, Left = -10000, Top = -10000 };
         window.Show();
         Pump(TimeSpan.FromSeconds(1));
-        if (window.FindName("VersionButton") is not Button { Content: string mainVersion } || mainVersion != "v1.0.2  ⓘ")
-            throw new InvalidOperationException("Main-window version is not the final v1.0.2 label.");
+        if (window.FindName("VersionButton") is not Button { Content: string mainVersion } || mainVersion != "v1.0.3  ⓘ")
+            throw new InvalidOperationException("Main-window version is not the final v1.0.3 label.");
         Render(window, Path.Combine(output, "main-window.png"));
         window.Close();
 
@@ -51,6 +51,16 @@ internal static class Program
             throw new InvalidOperationException("Global FTP default directory did not initialize as an absolute path.");
         if (settingsWindow.FindName("NewTextButton") is not Button)
             throw new InvalidOperationException("FTP new-text button is missing.");
+        if (settingsWindow.FindName("IncludeNotesCheckBox") is not CheckBox ||
+            settingsWindow.FindName("PublishLocalButton") is not Button ||
+            settingsWindow.FindName("BrowsePublishButton") is not Button ||
+            settingsWindow.FindName("OpenPublishDirectoryButton") is not Button ||
+            settingsWindow.FindName("OpenPublishBackupsButton") is not Button)
+            throw new InvalidOperationException("ZIP notes option or local-publish controls are missing.");
+        if (!new NSCheatManager.Windows.Models.AppSettings().IncludeNotesInZip)
+            throw new InvalidOperationException("The ZIP notes option is not enabled by default for new settings.");
+        if (!FindVisualChildren<TextBlock>(settingsWindow).Any(text => text.Text == "本地发布目录（现有 Git 仓库）"))
+            throw new InvalidOperationException("Settings do not identify the local Git repository requirement.");
         if (!FindVisualChildren<TextBlock>(settingsWindow).Any(text => text.Text == "TXT 文本编辑器路径（留空使用 Windows 默认程序）"))
             throw new InvalidOperationException("Settings do not explain that the TXT editor override is optional.");
         Render(settingsWindow, Path.Combine(output, "settings-page.png"));
@@ -296,6 +306,10 @@ internal static class Program
         languageButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if ((englishWindow.FindName("NewTextButton") as Button)?.Content?.ToString() != "New text file")
             throw new InvalidOperationException("FTP new-text button did not switch to English.");
+        if ((englishWindow.FindName("PublishLocalButton") as Button)?.Content?.ToString() != "Publish to local directory" ||
+            (englishWindow.FindName("IncludeNotesCheckBox") as CheckBox)?.Content?.ToString() != "Include notes.txt" ||
+            (englishWindow.FindName("BrowsePublishButton") as Button)?.Content?.ToString() != "Choose folder…")
+            throw new InvalidOperationException("Local-publish or ZIP-notes controls did not switch to English.");
         if (!FindVisualChildren<TextBlock>(englishWindow).Any(text => text.Text == "TXT editor path (empty uses the Windows default app)"))
             throw new InvalidOperationException("English settings do not explain that the TXT editor override is optional.");
         englishViewModel.NavigateLibraryCommand.Execute(null);
@@ -346,6 +360,10 @@ internal static class Program
         var remembered = persistenceViewModel.SelectedDevice ?? throw new InvalidOperationException("Remembered-device probe could not create a device.");
         remembered.Name = "Remembered device probe";
         persistenceViewModel.FtpDefaultDirectory = "/switch/breeze/cheats";
+        persistenceViewModel.IncludeNotesInZip = false;
+        var localPublishProbe = Path.Combine(Path.GetTempPath(), "nscheatmanager-ui-publish", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(localPublishProbe, ".git"));
+        persistenceViewModel.LocalPublishDirectory = localPublishProbe;
         persistenceViewModel.SaveDeviceCommand.Execute(null);
         PumpUntil(() => persistenceViewModel.StatusMessage.Contains("设备设置已保存", StringComparison.Ordinal), TimeSpan.FromSeconds(3));
         var persistenceShutdown = persistenceViewModel.ShutdownAsync();
@@ -355,12 +373,15 @@ internal static class Program
         var restoredInit = restoredViewModel.InitializeAsync();
         PumpUntil(() => restoredInit.IsCompleted, TimeSpan.FromSeconds(5));
         restoredInit.GetAwaiter().GetResult();
-        if (restoredViewModel.SelectedDevice?.Id != remembered.Id || restoredViewModel.FtpDefaultDirectory != "/switch/breeze/cheats" || restoredViewModel.ConnectionStatus != "未连接" || restoredViewModel.FtpStatus != "FTP 未连接")
-            throw new InvalidOperationException("Last-selected device or global FTP default directory was not restored without connecting.");
+        if (restoredViewModel.SelectedDevice?.Id != remembered.Id || restoredViewModel.FtpDefaultDirectory != "/switch/breeze/cheats" ||
+            restoredViewModel.IncludeNotesInZip || !restoredViewModel.LocalPublishDirectory.Equals(localPublishProbe, StringComparison.OrdinalIgnoreCase) ||
+            restoredViewModel.ConnectionStatus != "未连接" || restoredViewModel.FtpStatus != "FTP 未连接")
+            throw new InvalidOperationException("Last device, FTP directory, ZIP-notes option or local publish directory was not restored without connecting.");
         var restoredShutdown = restoredViewModel.ShutdownAsync();
         PumpUntil(() => restoredShutdown.IsCompleted, TimeSpan.FromSeconds(5));
         restoredShutdown.GetAwaiter().GetResult();
-        Console.WriteLine("LAST_DEVICE_AND_FTP_DEFAULT_PERSISTENCE_OK");
+        if (Directory.Exists(localPublishProbe)) Directory.Delete(localPublishProbe, true);
+        Console.WriteLine("LAST_DEVICE_FTP_ZIP_AND_LOCAL_PUBLISH_PERSISTENCE_OK");
         application.Shutdown();
     }
 
@@ -397,7 +418,7 @@ internal static class Program
             !visibleText.Contains(expectedGroup))
             throw new InvalidOperationException($"About window {(english ? "English" : "Chinese")} project/community details are incomplete.");
         if (windowsUrl.Text != "https://github.com/Aster145/NSCheatManager-Windows" ||
-            aboutVersion.Text != "v1.0.2 · win-x64 · portable/self-contained" || aboutVersion.Text.Contains("preview", StringComparison.OrdinalIgnoreCase) ||
+            aboutVersion.Text != "v1.0.3 · win-x64 · portable/self-contained" || aboutVersion.Text.Contains("preview", StringComparison.OrdinalIgnoreCase) ||
             qqNumber.Text != expectedGroup ||
             about.Title != (english ? "About" : "关于"))
             throw new InvalidOperationException($"About window {(english ? "English" : "Chinese")} localization is incorrect.");
